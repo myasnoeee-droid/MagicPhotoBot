@@ -1,0 +1,122 @@
+import os
+import asyncio
+import logging
+from typing import Optional
+
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, FSInputFile
+from aiogram.filters import CommandStart, Command
+from aiogram.enums.parse_mode import ParseMode
+from aiogram.client.default import DefaultBotProperties
+
+from dotenv import load_dotenv
+
+from limiter import FreeUsageLimiter
+from processing import animate_photo_via_replicate, download_file
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s:%(name)s:%(message)s'
+)
+logger = logging.getLogger("magicphotobot")
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
+ALLOWED_CHAT_IDS = [
+    int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(',') if x
+]
+MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
+DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
+
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is not set")
+
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+limiter = FreeUsageLimiter(max_free=MAX_FREE_ANIMS_PER_USER)
+
+WELCOME = (
+    "<b>👋 Привет!</b> Это <b>MagicPhotoBot</b>.\n\n"
+    "🪄 Пришли мне <b>фото</b>, и я оживлю его в стиле фильмов о Гарри Поттере.\n"
+    "Первое оживление — <b>бесплатно</b>. Дальше — доступны пакеты.\n\n"
+    "Подсказка: лучше всего работают портреты, где лицо прямо и хорошо освещено."
+)
+
+PRICING = (
+    "<b>Тарифы:</b>\n"
+    "• 1 бесплатное оживление\n"
+    "• 3 анимации — 2$\n"
+    "• 10 анимаций — 5$\n\n"
+    "Оплата скоро: TON / USDT / Telegram Stars."
+)
+
+@dp.message(CommandStart())
+async def on_start(message: Message):
+    if ALLOWED_CHAT_IDS and message.chat.id not in ALLOWED_CHAT_IDS:
+        await message.answer("Бот временно доступен по инвайту. Напишите администратору.")
+        return
+    await message.answer(WELCOME)
+
+@dp.message(Command("pricing"))
+async def on_pricing(message: Message):
+    await message.answer(PRICING)
+
+@dp.message(Command("admin"))
+async def on_admin(message: Message):
+    if ADMIN_USER_ID and message.from_user and message.from_user.id == ADMIN_USER_ID:
+        await message.answer(
+            f"Users in memory: {limiter.users_count()} | Total anims: {limiter.total_count()}"
+        )
+    else:
+        await message.answer("Недостаточно прав.")
+
+@dp.message(F.photo)
+async def on_photo(message: Message):
+    user_id = message.from_user.id if message.from_user else 0
+
+    if not limiter.can_use(user_id):
+        await message.answer("Вы использовали бесплатное оживление. Оформите пакет: /pricing")
+        return
+
+    photo = message.photo[-1]
+
+    try:
+        status = await message.answer("⚙️ Обрабатываю фото, это займёт ~20–60 секунд...")
+
+        file_info = await bot.get_file(photo.file_id)
+        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
+        video_url = await animate_photo_via_replicate(source_image_url=file_url)
+
+        if not video_url:
+            await status.edit_text("❌ Не удалось оживить фото. Попробуйте другое изображение.")
+            return
+
+        tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{photo.file_unique_id}.mp4")
+        await download_file(video_url, tmp_video_path)
+
+        await bot.send_video(chat_id=message.chat.id, video=FSInputFile(tmp_video_path),
+                             caption="Готово! Если понравилось — /pricing")
+
+        limiter.mark_used(user_id)
+
+        try:
+            os.remove(tmp_video_path)
+        except Exception:
+            pass
+
+        await status.delete()
+
+    except Exception as e:
+        logger.exception("Animation failed: %s", e)
+        await message.answer("⚠️ Произошла ошибка. Попробуйте ещё раз или другое фото.")
+
+
+def main():
+    asyncio.run(dp.start_polling(bot))
+
+if __name__ == "__main__":
+    main()
