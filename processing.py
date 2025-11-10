@@ -108,4 +108,3 @@ async def download_file(url: str, dst_path: str):
                     if chunk:
                         f.write(chunk)
     await loop.run_in_executor(None, _download)
-
