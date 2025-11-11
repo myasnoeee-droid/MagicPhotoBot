@@ -442,28 +442,31 @@ async def on_preset(query: CallbackQuery):
 
         video_url = result["url"]
 
-        tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{file_id}.mp4")
-        await download_file(video_url, tmp_video_path)
-        await bot.send_video(
-            chat_id=query.message.chat.id,
-            video=FSInputFile(tmp_video_path),
-            caption="Готово! ✨",
-            reply_markup=buy_cta_keyboard(),  # кнопки 3/5/10 звёзд сразу под видео
-        )
+        # 3) Скачиваем видео локально и отправляем пользователю
+tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{photo.file_unique_id}.mp4")
+await download_file(video_url, tmp_video_path)
 
-        # списываем кредит или отмечаем бесплатное использование
-        if had_paid and user_credits.get(uid, 0) > 0:
-            user_credits[uid] -= 1
-        else:
-            limiter.mark_used(uid)
+await bot.send_video(
+    chat_id=query.message.chat.id,
+    video=FSInputFile(tmp_video_path),
+    caption="Готово! ✨",
+    reply_markup=buy_cta_keyboard(uid),  # добавили кнопки с 3/5/10 звёзд
+)
 
-        try:
-            os.remove(tmp_video_path)
-        except Exception:
-            pass
+# списываем кредит или отмечаем бесплатное использование
+if user_credits.get(uid, 0) > 0:
+    user_credits[uid] -= 1
+else:
+    limiter.mark_used(uid)
 
-        # чистим состояние (не затираем сообщение с видео)
-        pending_photo.pop(uid, None)
+try:
+    os.remove(tmp_video_path)
+except Exception:
+    pass
+
+# чистим состояние (не затираем сообщение с видео)
+pending_photo.pop(uid, None)
+
 
     except Exception as e:
         logger.exception("Preset flow failed: %s", e)
