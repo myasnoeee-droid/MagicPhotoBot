@@ -215,18 +215,18 @@ pending_photo: dict[int, dict] = {}  # user_id -> {"file_id": str, "caption": st
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     kb = [
-        [
-            InlineKeyboardButton(text=I18N["ru"]["btn_preset_1"], callback_data="preset:1"),
-            InlineKeyboardButton(text=I18N["ru"]["btn_preset_2"], callback_data="preset:2"),
-            InlineKeyboardButton(text=I18N["ru"]["btn_preset_3"], callback_data="preset:3"),
-        ]
+        [InlineKeyboardButton(text=I18N["ru"]["btn_preset_1"], callback_data="preset:1")],
+        [InlineKeyboardButton(text=I18N["ru"]["btn_preset_2"], callback_data="preset:2")],
+        [InlineKeyboardButton(text=I18N["ru"]["btn_preset_3"], callback_data="preset:3")],
     ]
+    # Вторая строка с кнопками подписи и отмены
     row2 = []
     if has_caption:
         row2.append(InlineKeyboardButton(text=I18N["ru"]["btn_use_caption"], callback_data="preset:usecap"))
     row2.append(InlineKeyboardButton(text=I18N["ru"]["btn_cancel"], callback_data="preset:cancel"))
     kb.append(row2)
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
 
 # ---------------- Stars (XTR) payments ----------------
 # payload -> (title, credits, amount in XTR)
