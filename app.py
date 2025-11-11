@@ -91,11 +91,12 @@ I18N = {
         "btn_cancel": "Отмена",
         "cancelled": "Отменено.",
 
-        # Stars
+        # Stars (локализованные подписи)
         "buy_title": "Выберите пакет:",
+        "buy_btn_1": "1 фото — 150 ⭐",
         "buy_btn_3": "3 фото — 300 ⭐",
         "buy_btn_5": "5 фото — 450 ⭐",
-        "buy_btn_10": "10 фото — 900 ⭐",
+        "buy_btn_10": "10 фото — 800 ⭐",
         "balance_title": "💰 Баланс\n• Кредиты: {credits}",
         "paid_ok": "✅ Оплата успешна! Начислено {credits} анимаций.\nБаланс: {balance}."
     },
@@ -143,9 +144,10 @@ I18N = {
         "cancelled": "Скасовано.",
 
         "buy_title": "Оберіть пакет:",
+        "buy_btn_1": "1 фото — 150 ⭐",
         "buy_btn_3": "3 фото — 300 ⭐",
         "buy_btn_5": "5 фото — 450 ⭐",
-        "buy_btn_10": "10 фото — 900 ⭐",
+        "buy_btn_10": "10 фото — 800 ⭐",
         "balance_title": "💰 Баланс\n• Кредити: {credits}",
         "paid_ok": "✅ Оплата успішна! Нараховано {credits} анімацій.\nБаланс: {balance}."
     },
@@ -192,9 +194,10 @@ I18N = {
         "cancelled": "Cancelled.",
 
         "buy_title": "Choose a pack:",
+        "buy_btn_1": "1 photo — 150 ⭐",
         "buy_btn_3": "3 photos — 300 ⭐",
         "buy_btn_5": "5 photos — 450 ⭐",
-        "buy_btn_10": "10 photos — 900 ⭐",
+        "buy_btn_10": "10 photos — 800 ⭐",
         "balance_title": "💰 Balance\n• Credits: {credits}",
         "paid_ok": "✅ Payment successful! Added {credits} animations.\nBalance: {balance}."
     },
@@ -202,7 +205,9 @@ I18N = {
 
 def t(uid: int, key: str) -> str:
     lang = user_lang.get(uid, DEFAULT_LANG)
-    return I18N.get(lang, I18N[DEFAULT_LANG]).get(key, "")
+    return I18N.get(lang, I18N[DEFAULT_LANG]).get(key, ""
+
+)
 
 def lang_keyboard(uid: int) -> InlineKeyboardMarkup:
     ru = InlineKeyboardButton(text=I18N["ru"]["lang_button"], callback_data="lang:ru")
@@ -230,19 +235,22 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
 # ---------------- Stars (XTR) payments ----------------
 # payload -> (title, credits, amount in XTR)
 PACKS = {
+    "pack_1":  ("1 animation", 1,  150),
     "pack_3":  ("3 animations", 3,  300),
     "pack_5":  ("5 animations", 5,  450),
-    "pack_10": ("10 animations", 10, 900),
+    "pack_10": ("10 animations", 10, 800),
 }
 # user_id -> remaining paid credits
 user_credits: dict[int, int] = {}
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = user_lang.get(uid, DEFAULT_LANG)
+    t1  = I18N[lang]["buy_btn_1"]
     t3  = I18N[lang]["buy_btn_3"]
     t5  = I18N[lang]["buy_btn_5"]
     t10 = I18N[lang]["buy_btn_10"]
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t1,  callback_data="buy:pack_1")],
         [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3")],
         [InlineKeyboardButton(text=t5,  callback_data="buy:pack_5")],
         [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
@@ -250,14 +258,16 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = user_lang.get(uid, DEFAULT_LANG)
+    t1  = "💫 " + I18N[lang]["buy_btn_1"]
     t3  = "💫 " + I18N[lang]["buy_btn_3"]
     t5  = "💫 " + I18N[lang]["buy_btn_5"]
     t10 = "💫 " + I18N[lang]["buy_btn_10"]
-    # делаем крупные кнопки под видео (по две в строке начиная со 2-й)
+    # под видео — три строки: 1 / (3,5) / 10
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3")],
-        [InlineKeyboardButton(text=t5,  callback_data="buy:pack_5"),
-         InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
+        [InlineKeyboardButton(text=t1,  callback_data="buy:pack_1")],
+        [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3"),
+         InlineKeyboardButton(text=t5,  callback_data="buy:pack_5")],
+        [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
     ])
 
 # ---------------- Handlers ----------------
@@ -348,7 +358,7 @@ async def process_pre_checkout(pre_checkout_q: PreCheckoutQuery):
 async def process_success(message: Message):
     uid = message.from_user.id if message.from_user else 0
     sp = message.successful_payment
-    payload = sp.invoice_payload  # "pack_3" / "pack_5" / "pack_10"
+    payload = sp.invoice_payload  # e.g. pack_1 / pack_3 / pack_5 / pack_10
     pack = PACKS.get(payload)
     if not pack:
         await message.answer("Платёж получен, но пакет не распознан. Напишите администратору.")
@@ -448,7 +458,7 @@ async def on_preset(query: CallbackQuery):
             chat_id=query.message.chat.id,
             video=FSInputFile(tmp_video_path),
             caption="Готово! ✨",
-            reply_markup=buy_cta_keyboard(uid),  # кнопки 3/5/10 звёзд сразу под видео
+            reply_markup=buy_cta_keyboard(uid),  # кнопки 1/3/5/10 звёзд сразу под видео
         )
 
         # списываем кредит или отмечаем бесплатное использование
