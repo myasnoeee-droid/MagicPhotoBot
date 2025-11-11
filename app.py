@@ -77,16 +77,14 @@ I18N = {
         "lang_set_en": "Language switched to: English",
         "hint_prompt": "natural smile, subtle head motion, cinematic lighting",
 
-        # Presets
-        "presets": [
-            "мягкая улыбка, легкое моргание, кинематографичный свет",
-            "естественная улыбка, легкий поворот головы вправо, фотореалистично",
-            "фэшн-портрет, едва заметная улыбка, 720p"
-        ],
+        # Presets (buttons’ titles; prompts are below in 'presets_prompts')
+        "btn_preset_1": "Natural smile",
+        "btn_preset_2": "Cinematic look",
+        "btn_preset_3": "Dreamy motion",
+        "btn_preset_4": "Expressive vibe",
+        "btn_preset_5": "Blink & glow",
+
         "choose_preset": "Выберите стиль (или пришлите свой текст в подписи):",
-        "btn_preset_1": "Мягкая улыбка",
-        "btn_preset_2": "Естественная улыбка",
-        "btn_preset_3": "Fashion 720p",
         "btn_use_caption": "Использовать мою подпись",
         "btn_cancel": "Отмена",
         "cancelled": "Отменено.",
@@ -130,15 +128,13 @@ I18N = {
         "lang_set_en": "Language switched to: English",
         "hint_prompt": "natural smile, subtle head motion, cinematic lighting",
 
-        "presets": [
-            "ніжна усмішка, легке кліпання, кінематографічне освітлення",
-            "природна усмішка, легкий поворот голови праворуч, фотореалістично",
-            "fashion-портрет, ледь помітна усмішка, 720p"
-        ],
+        "btn_preset_1": "Natural smile",
+        "btn_preset_2": "Cinematic look",
+        "btn_preset_3": "Dreamy motion",
+        "btn_preset_4": "Expressive vibe",
+        "btn_preset_5": "Blink & glow",
+
         "choose_preset": "Оберіть стиль (або надішліть свій текст у підписі):",
-        "btn_preset_1": "Ніжна усмішка",
-        "btn_preset_2": "Природна усмішка",
-        "btn_preset_3": "Fashion 720p",
         "btn_use_caption": "Мій підпис",
         "btn_cancel": "Скасувати",
         "cancelled": "Скасовано.",
@@ -180,15 +176,13 @@ I18N = {
         "lang_button_en": "English",
         "hint_prompt": "natural smile, subtle head motion, cinematic lighting",
 
-        "presets": [
-            "smile softly, gentle eye blink, cinematic lighting",
-            "natural smile, slight head turn right, photorealistic",
-            "fashion portrait, subtle smile, 720p"
-        ],
+        "btn_preset_1": "Natural smile",
+        "btn_preset_2": "Cinematic look",
+        "btn_preset_3": "Dreamy motion",
+        "btn_preset_4": "Expressive vibe",
+        "btn_preset_5": "Blink & glow",
+
         "choose_preset": "Choose a style (or send your own prompt in caption):",
-        "btn_preset_1": "Soft smile",
-        "btn_preset_2": "Natural smile",
-        "btn_preset_3": "Fashion 720p",
         "btn_use_caption": "Use my caption",
         "btn_cancel": "Cancel",
         "cancelled": "Cancelled.",
@@ -203,11 +197,18 @@ I18N = {
     },
 }
 
+# Prompts (EN for best model quality), same set for all langs
+PRESET_PROMPTS = [
+    "natural smile, slight head turn right, photorealistic",                   # 1 Natural smile
+    "cinematic portrait, subtle breathing, soft studio light, 24fps",         # 2 Cinematic look
+    "gentle movement, hair flutter, soft focus, ethereal glow",                # 3 Dreamy motion
+    "smile softly, natural head tilt, expressive eyes, warm tone lighting",    # 4 Expressive vibe
+    "gentle eye blink, slow smile, cinematic lighting, photorealistic",        # 5 Blink & glow
+]
+
 def t(uid: int, key: str) -> str:
     lang = user_lang.get(uid, DEFAULT_LANG)
-    return I18N.get(lang, I18N[DEFAULT_LANG]).get(key, ""
-
-)
+    return I18N.get(lang, I18N[DEFAULT_LANG]).get(key, "")
 
 def lang_keyboard(uid: int) -> InlineKeyboardMarkup:
     ru = InlineKeyboardButton(text=I18N["ru"]["lang_button"], callback_data="lang:ru")
@@ -219,12 +220,15 @@ def lang_keyboard(uid: int) -> InlineKeyboardMarkup:
 pending_photo: dict[int, dict] = {}  # user_id -> {"file_id": str, "caption": str}
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
-    # иконки + одна кнопка в строке, чтобы влезал длинный текст
-    kb = [
-        [InlineKeyboardButton(text="💫 " + I18N["ru"]["btn_preset_1"], callback_data="preset:1")],
-        [InlineKeyboardButton(text="🎬 " + I18N["ru"]["btn_preset_2"], callback_data="preset:2")],
-        [InlineKeyboardButton(text="📸 " + I18N["ru"]["btn_preset_3"], callback_data="preset:3")],
+    # five wide rows with icons
+    titles = [
+        "😊 " + I18N["ru"]["btn_preset_1"],
+        "🎬 " + I18N["ru"]["btn_preset_2"],
+        "🕊️ " + I18N["ru"]["btn_preset_3"],
+        "🔥 " + I18N["ru"]["btn_preset_4"],
+        "💡 " + I18N["ru"]["btn_preset_5"],
     ]
+    kb = [[InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")] for i in range(5)]
     row2 = []
     if has_caption:
         row2.append(InlineKeyboardButton(text="✍️ " + I18N["ru"]["btn_use_caption"], callback_data="preset:usecap"))
@@ -414,11 +418,10 @@ async def on_preset(query: CallbackQuery):
         user_prompt = info["caption"] if info["caption"] else t(uid, "hint_prompt")
     else:
         idx = int(data) - 1
-        presets = I18N.get(lang, I18N[DEFAULT_LANG])["presets"]
-        if idx < 0 or idx >= len(presets):
+        if idx < 0 or idx >= len(PRESET_PROMPTS):
             user_prompt = t(uid, "hint_prompt")
         else:
-            user_prompt = presets[idx]
+            user_prompt = PRESET_PROMPTS[idx]
 
     try:
         await query.message.edit_text(t(uid, "status_work"))
@@ -458,7 +461,7 @@ async def on_preset(query: CallbackQuery):
             chat_id=query.message.chat.id,
             video=FSInputFile(tmp_video_path),
             caption="Готово! ✨",
-            reply_markup=buy_cta_keyboard(uid),  # кнопки 1/3/5/10 звёзд сразу под видео
+            reply_markup=buy_cta_keyboard(uid),
         )
 
         # списываем кредит или отмечаем бесплатное использование
