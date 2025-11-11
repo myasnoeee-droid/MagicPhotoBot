@@ -92,9 +92,10 @@ I18N = {
         "cancelled": "Отменено.",
 
         # Stars
-        "buy_title": "Выбери пакет звёзд:",
-        "buy_btn_3": "⭐️ 3 анимации — 300 XTR",
-        "buy_btn_10": "⭐️ 10 анимаций — 900 XTR",
+        "buy_title": "Выберите пакет:",
+        "buy_btn_3": "3 фото — 300 ⭐",
+        "buy_btn_5": "5 фото — 450 ⭐",
+        "buy_btn_10": "10 фото — 900 ⭐",
         "balance_title": "💰 Баланс\n• Кредиты: {credits}",
         "paid_ok": "✅ Оплата успешна! Начислено {credits} анимаций.\nБаланс: {balance}."
     },
@@ -141,9 +142,10 @@ I18N = {
         "btn_cancel": "✖️ Скасувати",
         "cancelled": "Скасовано.",
 
-        "buy_title": "Виберіть пакет зірок:",
-        "buy_btn_3": "⭐️ 3 анімації — 300 XTR",
-        "buy_btn_10": "⭐️ 10 анімацій — 900 XTR",
+        "buy_title": "Оберіть пакет:",
+        "buy_btn_3": "3 фото — 300 ⭐",
+        "buy_btn_5": "5 фото — 450 ⭐",
+        "buy_btn_10": "10 фото — 900 ⭐",
         "balance_title": "💰 Баланс\n• Кредити: {credits}",
         "paid_ok": "✅ Оплата успішна! Нараховано {credits} анімацій.\nБаланс: {balance}."
     },
@@ -189,9 +191,10 @@ I18N = {
         "btn_cancel": "✖️ Cancel",
         "cancelled": "Cancelled.",
 
-        "buy_title": "Choose a stars pack:",
-        "buy_btn_3": "⭐️ 3 animations — 300 XTR",
-        "buy_btn_10": "⭐️ 10 animations — 900 XTR",
+        "buy_title": "Choose a pack:",
+        "buy_btn_3": "3 photos — 300 ⭐",
+        "buy_btn_5": "5 photos — 450 ⭐",
+        "buy_btn_10": "10 photos — 900 ⭐",
         "balance_title": "💰 Balance\n• Credits: {credits}",
         "paid_ok": "✅ Payment successful! Added {credits} animations.\nBalance: {balance}."
     },
@@ -229,6 +232,7 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
 # payload -> (title, credits, amount in XTR)
 PACKS = {
     "pack_3":  ("3 animations", 3,  300),
+    "pack_5":  ("5 animations", 5,  450),
     "pack_10": ("10 animations", 10, 900),
 }
 # user_id -> remaining paid credits
@@ -238,7 +242,17 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=I18N["ru"]["buy_btn_3"], callback_data="buy:pack_3")
     ],[
+        InlineKeyboardButton(text=I18N["ru"]["buy_btn_5"], callback_data="buy:pack_5")
+    ],[
         InlineKeyboardButton(text=I18N["ru"]["buy_btn_10"], callback_data="buy:pack_10")
+    ]])
+
+def buy_cta_keyboard() -> InlineKeyboardMarkup:
+    # короткие кнопки под видео (в одну строку)
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=I18N["ru"]["buy_btn_3"], callback_data="buy:pack_3"),
+        InlineKeyboardButton(text=I18N["ru"]["buy_btn_5"], callback_data="buy:pack_5"),
+        InlineKeyboardButton(text=I18N["ru"]["buy_btn_10"], callback_data="buy:pack_10"),
     ]])
 
 # ---------------- Handlers ----------------
@@ -283,7 +297,9 @@ async def on_pricing(message: Message):
 async def on_admin(message: Message):
     uid = message.from_user.id if message.from_user else 0
     if ADMIN_USER_ID and message.from_user and message.from_user.id == ADMIN_USER_ID:
-        await message.answer(f"Users: {limiter.users_count()} | Total renders: {limiter.total_count()} | Paid credits: {user_credits.get(uid,0)}")
+        await message.answer(
+            f"Users: {limiter.users_count()} | Total renders: {limiter.total_count()} | Paid credits: {user_credits.get(uid,0)}"
+        )
     else:
         await message.answer("No permission.")
 
@@ -327,7 +343,7 @@ async def process_pre_checkout(pre_checkout_q: PreCheckoutQuery):
 async def process_success(message: Message):
     uid = message.from_user.id if message.from_user else 0
     sp = message.successful_payment
-    payload = sp.invoice_payload  # "pack_3" / "pack_10"
+    payload = sp.invoice_payload  # "pack_3" / "pack_5" / "pack_10"
     pack = PACKS.get(payload)
     if not pack:
         await message.answer("Платёж получен, но пакет не распознан. Напишите администратору.")
@@ -422,7 +438,12 @@ async def on_preset(query: CallbackQuery):
 
         tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{file_id}.mp4")
         await download_file(video_url, tmp_video_path)
-        await bot.send_video(chat_id=query.message.chat.id, video=FSInputFile(tmp_video_path), caption=t(uid, "done"))
+        await bot.send_video(
+            chat_id=query.message.chat.id,
+            video=FSInputFile(tmp_video_path),
+            caption="Готово! ✨",
+            reply_markup=buy_cta_keyboard(),  # кнопки 3/5/10 звёзд сразу под видео
+        )
 
         # списываем кредит или отмечаем бесплатное использование
         if had_paid and user_credits.get(uid, 0) > 0:
@@ -435,8 +456,8 @@ async def on_preset(query: CallbackQuery):
         except Exception:
             pass
 
+        # чистим состояние (не затираем сообщение с видео)
         pending_photo.pop(uid, None)
-        await query.message.edit_text(t(uid, "done"))
 
     except Exception as e:
         logger.exception("Preset flow failed: %s", e)
