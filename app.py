@@ -214,19 +214,19 @@ def lang_keyboard(uid: int) -> InlineKeyboardMarkup:
 pending_photo: dict[int, dict] = {}  # user_id -> {"file_id": str, "caption": str}
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
+    # берём подписи кнопок из RU-блока (иконки универсальны), по одной кнопке в строке
     kb = [
-        [InlineKeyboardButton(text=I18N["ru"]["btn_preset_1"], callback_data="preset:1")],
-        [InlineKeyboardButton(text=I18N["ru"]["btn_preset_2"], callback_data="preset:2")],
-        [InlineKeyboardButton(text=I18N["ru"]["btn_preset_3"], callback_data="preset:3")],
+        [InlineKeyboardButton(text="💫 " + I18N["ru"]["btn_preset_1"], callback_data="preset:1")],
+        [InlineKeyboardButton(text="🎬 " + I18N["ru"]["btn_preset_2"], callback_data="preset:2")],
+        [InlineKeyboardButton(text="📸 " + I18N["ru"]["btn_preset_3"], callback_data="preset:3")],
     ]
-    # Вторая строка с кнопками подписи и отмены
+    # строка с действиями
     row2 = []
     if has_caption:
-        row2.append(InlineKeyboardButton(text=I18N["ru"]["btn_use_caption"], callback_data="preset:usecap"))
-    row2.append(InlineKeyboardButton(text=I18N["ru"]["btn_cancel"], callback_data="preset:cancel"))
+        row2.append(InlineKeyboardButton(text="✍️ " + I18N["ru"]["btn_use_caption"], callback_data="preset:usecap"))
+    row2.append(InlineKeyboardButton(text="✖️ " + I18N["ru"]["btn_cancel"], callback_data="preset:cancel"))
     kb.append(row2)
     return InlineKeyboardMarkup(inline_keyboard=kb)
-
 
 # ---------------- Stars (XTR) payments ----------------
 # payload -> (title, credits, amount in XTR)
@@ -239,21 +239,27 @@ PACKS = {
 user_credits: dict[int, int] = {}
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=I18N["ru"]["buy_btn_3"], callback_data="buy:pack_3")
-    ],[
-        InlineKeyboardButton(text=I18N["ru"]["buy_btn_5"], callback_data="buy:pack_5")
-    ],[
-        InlineKeyboardButton(text=I18N["ru"]["buy_btn_10"], callback_data="buy:pack_10")
-    ]])
+    lang = user_lang.get(uid, DEFAULT_LANG)
+    t3  = I18N[lang]["buy_btn_3"]
+    t5  = I18N[lang]["buy_btn_5"]
+    t10 = I18N[lang]["buy_btn_10"]
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3")],
+        [InlineKeyboardButton(text=t5,  callback_data="buy:pack_5")],
+        [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
+    ])
 
-def buy_cta_keyboard() -> InlineKeyboardMarkup:
-    # короткие кнопки под видео (в одну строку)
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=I18N["ru"]["buy_btn_3"], callback_data="buy:pack_3"),
-        InlineKeyboardButton(text=I18N["ru"]["buy_btn_5"], callback_data="buy:pack_5"),
-        InlineKeyboardButton(text=I18N["ru"]["buy_btn_10"], callback_data="buy:pack_10"),
-    ]])
+def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = user_lang.get(uid, DEFAULT_LANG)
+    t3  = "💫 " + I18N[lang]["buy_btn_3"]
+    t5  = "💫 " + I18N[lang]["buy_btn_5"]
+    t10 = "💫 " + I18N[lang]["buy_btn_10"]
+    # под видео сделаем в две строки, чтобы кнопки были крупные и читабельные
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3")],
+        [InlineKeyboardButton(text=t5,  callback_data="buy:pack_5"),
+         InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
+    ])
 
 # ---------------- Handlers ----------------
 
