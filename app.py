@@ -4,7 +4,13 @@ import logging
 from typing import Optional
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import (
+    Message,
+    FSInputFile,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
+)
 from aiogram.filters import CommandStart, Command
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -33,7 +39,7 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 dp = Dispatcher()
 limiter = FreeUsageLimiter(max_free=MAX_FREE_ANIMS_PER_USER)
 
-# --- i18n (минималистично, без БД) ---
+# ---------------- i18n (simple in-memory) ----------------
 DEFAULT_LANG = "ru"
 user_lang: dict[int, str] = {}  # user_id -> "ru"|"uk"|"en"
 
@@ -57,7 +63,7 @@ I18N = {
             "После оплаты подождите 1–2 минуты и повторите."
         ),
         "auth_error": "Ошибка доступа к AI-провайдеру. Админ уже оповещен.",
-        "model_fields": "Выбранная модель требует другие входы: {fields}.\nУбедитесь, что используете модель image-to-video (WAN i2v).",
+        "model_fields": "Выбранная модель требует другие входы: {fields}.\nУбедитесь, что используете image-to-video (WAN i2v).",
         "fail": "Не удалось сгенерировать. Попробуйте другое фото.",
         "done": "Готово! Если понравилось — смотрите /pricing",
         "choose_lang": "Выберите язык интерфейса:",
@@ -67,12 +73,26 @@ I18N = {
         "lang_button_en": "English",
         "lang_set_uk": "Мову змінено на: Українська",
         "lang_set_en": "Language switched to: English",
-        "hint_prompt": "natural smile, subtle head motion, cinematic lighting"
+        "hint_prompt": "natural smile, subtle head motion, cinematic lighting",
+
+        # Presets
+        "presets": [
+            "мягкая улыбка, легкое моргание, кинематографичный свет",
+            "естественная улыбка, легкий поворот головы вправо, фотореалистично",
+            "фэшн-портрет, едва заметная улыбка, 720p"
+        ],
+        "choose_preset": "Выберите стиль (или пришлите свой текст в подписи):",
+        "btn_preset_1": "😊 Мягкая улыбка",
+        "btn_preset_2": "🙂 Естественная улыбка",
+        "btn_preset_3": "📸 Fashion 720p",
+        "btn_use_caption": "✍️ Использовать мою подпись",
+        "btn_cancel": "✖️ Отмена",
+        "cancelled": "Отменено.",
     },
     "uk": {
         "welcome": (
             "<b>Привіт!</b> Надішли <b>фото</b> і, за бажання, підпис-промпт.\n"
-            "Я зроблю коротке відео з зображення.\n\n"
+            "Я зроблю коротке відео із зображення.\n\n"
             "Підказка: найкраще працюють фронтальні портрети з хорошим світлом."
         ),
         "pricing": (
@@ -97,7 +117,21 @@ I18N = {
         "lang_button_uk": "Українська",
         "lang_button_en": "English",
         "lang_set_en": "Language switched to: English",
-        "hint_prompt": "natural smile, subtle head motion, cinematic lighting"
+        "hint_prompt": "natural smile, subtle head motion, cinematic lighting",
+
+        # Presets
+        "presets": [
+            "ніжна усмішка, легке кліпання, кінематографічне освітлення",
+            "природна усмішка, легкий поворот голови праворуч, фотореалістично",
+            "fashion-портрет, ледь помітна усмішка, 720p"
+        ],
+        "choose_preset": "Оберіть стиль (або надішліть свій текст у підписі):",
+        "btn_preset_1": "😊 Ніжна усмішка",
+        "btn_preset_2": "🙂 Природна усмішка",
+        "btn_preset_3": "📸 Fashion 720p",
+        "btn_use_caption": "✍️ Мій підпис",
+        "btn_cancel": "✖️ Скасувати",
+        "cancelled": "Скасовано.",
     },
     "en": {
         "welcome": (
@@ -126,7 +160,21 @@ I18N = {
         "lang_button": "Русский",
         "lang_button_uk": "Українська",
         "lang_button_en": "English",
-        "hint_prompt": "natural smile, subtle head motion, cinematic lighting"
+        "hint_prompt": "natural smile, subtle head motion, cinematic lighting",
+
+        # Presets
+        "presets": [
+            "smile softly, gentle eye blink, cinematic lighting",
+            "natural smile, slight head turn right, photorealistic",
+            "fashion portrait, subtle smile, 720p"
+        ],
+        "choose_preset": "Choose a style (or send your own prompt in caption):",
+        "btn_preset_1": "😊 Soft smile",
+        "btn_preset_2": "🙂 Natural smile",
+        "btn_preset_3": "📸 Fashion 720p",
+        "btn_use_caption": "✍️ Use my caption",
+        "btn_cancel": "✖️ Cancel",
+        "cancelled": "Cancelled.",
     },
 }
 
@@ -135,18 +183,39 @@ def t(uid: int, key: str) -> str:
     return I18N.get(lang, I18N[DEFAULT_LANG]).get(key, "")
 
 def lang_keyboard(uid: int) -> InlineKeyboardMarkup:
-    # Кнопки всегда одинаковые по надписям, просто берем из RU (понятнее для RU/UA)
+    # Captions from RU block for compactness
     ru = InlineKeyboardButton(text=I18N["ru"]["lang_button"], callback_data="lang:ru")
     uk = InlineKeyboardButton(text=I18N["ru"]["lang_button_uk"], callback_data="lang:uk")
     en = InlineKeyboardButton(text=I18N["ru"]["lang_button_en"], callback_data="lang:en")
     return InlineKeyboardMarkup(inline_keyboard=[[ru, uk, en]])
+
+# Store last photo until user picks a preset
+pending_photo: dict[int, dict] = {}  # user_id -> {"file_id": str, "caption": str}
+
+def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
+    # Button texts from RU block (single layout for all langs)
+    kb = [
+        [
+            InlineKeyboardButton(text=I18N["ru"]["btn_preset_1"], callback_data="preset:1"),
+            InlineKeyboardButton(text=I18N["ru"]["btn_preset_2"], callback_data="preset:2"),
+            InlineKeyboardButton(text=I18N["ru"]["btn_preset_3"], callback_data="preset:3"),
+        ]
+    ]
+    row2 = []
+    if has_caption:
+        row2.append(InlineKeyboardButton(text=I18N["ru"]["btn_use_caption"], callback_data="preset:usecap"))
+    row2.append(InlineKeyboardButton(text=I18N["ru"]["btn_cancel"], callback_data="preset:cancel"))
+    kb.append(row2)
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+# ---------------- Handlers ----------------
 
 @dp.message(CommandStart())
 async def on_start(message: Message):
     if ALLOWED_CHAT_IDS and message.chat.id not in ALLOWED_CHAT_IDS:
         await message.answer(I18N[DEFAULT_LANG]["invite_only"])
         return
-    # Если язык еще не выбран — покажем меню выбора
+
     uid = message.from_user.id if message.from_user else 0
     if uid not in user_lang:
         await message.answer(I18N[DEFAULT_LANG]["choose_lang"], reply_markup=lang_keyboard(uid))
@@ -164,14 +233,12 @@ async def on_lang_set(query: CallbackQuery):
     _, lang = query.data.split(":", 1)
     if lang in I18N:
         user_lang[uid] = lang
-        # Подтверждение на выбранном языке
         if lang == "ru":
             await query.message.edit_text(I18N["ru"]["lang_set"])
         elif lang == "uk":
             await query.message.edit_text(I18N["ru"]["lang_set_uk"])
         else:
             await query.message.edit_text(I18N["ru"]["lang_set_en"])
-        # Показ приветствия
         await query.message.answer(t(uid, "welcome"))
 
 @dp.message(Command("pricing"))
@@ -195,41 +262,77 @@ async def on_photo(message: Message):
         await message.answer(t(uid, "free_used"))
         return
 
+    # Save file_id and original caption, then ask for preset
     photo = message.photo[-1]
-    try:
-        status = await message.answer(t(uid, "status_work"))
+    pending_photo[uid] = {
+        "file_id": photo.file_id,
+        "caption": (message.caption or "").strip(),
+    }
+    await message.answer(
+        t(uid, "choose_preset"),
+        reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"]))
+    )
 
-        file_info = await bot.get_file(photo.file_id)
+@dp.callback_query(F.data.startswith("preset:"))
+async def on_preset(query: CallbackQuery):
+    uid = query.from_user.id
+    lang = user_lang.get(uid, DEFAULT_LANG)
+    data = query.data.split(":", 1)[1]
+
+    info = pending_photo.get(uid)
+    if not info:
+        await query.message.edit_text(t(uid, "fail"))
+        return
+
+    if data == "cancel":
+        pending_photo.pop(uid, None)
+        await query.message.edit_text(t(uid, "cancelled"))
+        return
+
+    # Choose prompt
+    if data == "usecap":
+        user_prompt = info["caption"] if info["caption"] else t(uid, "hint_prompt")
+    else:
+        idx = int(data) - 1
+        presets = I18N.get(lang, I18N[DEFAULT_LANG])["presets"]
+        if idx < 0 or idx >= len(presets):
+            user_prompt = t(uid, "hint_prompt")
+        else:
+            user_prompt = presets[idx]
+
+    try:
+        await query.message.edit_text(t(uid, "status_work"))
+
+        # Resolve Telegram file URL
+        file_id = info["file_id"]
+        file_info = await bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
 
-        user_prompt = (message.caption or "").strip()
-        if not user_prompt:
-            # Дефолтный промпт лучше оставить на EN для качества
-            user_prompt = t(uid, "hint_prompt")
-
+        # Run generation
         result = await animate_photo_via_replicate(source_image_url=file_url, prompt=user_prompt)
 
         if not result.get("ok"):
             code = result.get("code", "unknown")
             if code == "replicate_402":
-                await status.edit_text(t(uid, "insufficient_credit"))
+                await query.message.edit_text(t(uid, "insufficient_credit"))
                 return
             if code in ("replicate_auth", "config"):
-                await status.edit_text(t(uid, "auth_error"))
+                await query.message.edit_text(t(uid, "auth_error"))
                 return
             if code == "replicate_422_fields":
                 fields = result.get("fields") or []
-                await status.edit_text(t(uid, "model_fields").format(fields=", ".join(fields)))
+                await query.message.edit_text(t(uid, "model_fields").format(fields=", ".join(fields)))
                 return
-            await status.edit_text(t(uid, "fail"))
+            await query.message.edit_text(t(uid, "fail"))
             return
 
         video_url = result["url"]
 
-        tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{photo.file_unique_id}.mp4")
+        # Download & send
+        tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{file_id}.mp4")
         await download_file(video_url, tmp_video_path)
 
-        await bot.send_video(chat_id=message.chat.id, video=FSInputFile(tmp_video_path), caption=t(uid, "done"))
+        await bot.send_video(chat_id=query.message.chat.id, video=FSInputFile(tmp_video_path), caption=t(uid, "done"))
 
         limiter.mark_used(uid)
 
@@ -238,11 +341,12 @@ async def on_photo(message: Message):
         except Exception:
             pass
 
-        await status.delete()
+        pending_photo.pop(uid, None)
+        await query.message.edit_text(t(uid, "done"))
 
     except Exception as e:
-        logger.exception("Animation failed: %s", e)
-        await message.answer("Unexpected error. Please try again with another photo.")
+        logger.exception("Preset flow failed: %s", e)
+        await query.message.edit_text("Unexpected error. Please try again with another photo.")
 
 def main():
     asyncio.run(dp.start_polling(bot))
