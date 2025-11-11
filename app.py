@@ -84,11 +84,11 @@ I18N = {
             "фэшн-портрет, едва заметная улыбка, 720p"
         ],
         "choose_preset": "Выберите стиль (или пришлите свой текст в подписи):",
-        "btn_preset_1": "😊 Мягкая улыбка",
-        "btn_preset_2": "🙂 Естественная улыбка",
-        "btn_preset_3": "📸 Fashion 720p",
-        "btn_use_caption": "✍️ Использовать мою подпись",
-        "btn_cancel": "✖️ Отмена",
+        "btn_preset_1": "Мягкая улыбка",
+        "btn_preset_2": "Естественная улыбка",
+        "btn_preset_3": "Fashion 720p",
+        "btn_use_caption": "Использовать мою подпись",
+        "btn_cancel": "Отмена",
         "cancelled": "Отменено.",
 
         # Stars
@@ -135,11 +135,11 @@ I18N = {
             "fashion-портрет, ледь помітна усмішка, 720p"
         ],
         "choose_preset": "Оберіть стиль (або надішліть свій текст у підписі):",
-        "btn_preset_1": "😊 Ніжна усмішка",
-        "btn_preset_2": "🙂 Природна усмішка",
-        "btn_preset_3": "📸 Fashion 720p",
-        "btn_use_caption": "✍️ Мій підпис",
-        "btn_cancel": "✖️ Скасувати",
+        "btn_preset_1": "Ніжна усмішка",
+        "btn_preset_2": "Природна усмішка",
+        "btn_preset_3": "Fashion 720p",
+        "btn_use_caption": "Мій підпис",
+        "btn_cancel": "Скасувати",
         "cancelled": "Скасовано.",
 
         "buy_title": "Оберіть пакет:",
@@ -184,11 +184,11 @@ I18N = {
             "fashion portrait, subtle smile, 720p"
         ],
         "choose_preset": "Choose a style (or send your own prompt in caption):",
-        "btn_preset_1": "😊 Soft smile",
-        "btn_preset_2": "🙂 Natural smile",
-        "btn_preset_3": "📸 Fashion 720p",
-        "btn_use_caption": "✍️ Use my caption",
-        "btn_cancel": "✖️ Cancel",
+        "btn_preset_1": "Soft smile",
+        "btn_preset_2": "Natural smile",
+        "btn_preset_3": "Fashion 720p",
+        "btn_use_caption": "Use my caption",
+        "btn_cancel": "Cancel",
         "cancelled": "Cancelled.",
 
         "buy_title": "Choose a pack:",
@@ -214,13 +214,12 @@ def lang_keyboard(uid: int) -> InlineKeyboardMarkup:
 pending_photo: dict[int, dict] = {}  # user_id -> {"file_id": str, "caption": str}
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
-    # берём подписи кнопок из RU-блока (иконки универсальны), по одной кнопке в строке
+    # иконки + одна кнопка в строке, чтобы влезал длинный текст
     kb = [
         [InlineKeyboardButton(text="💫 " + I18N["ru"]["btn_preset_1"], callback_data="preset:1")],
         [InlineKeyboardButton(text="🎬 " + I18N["ru"]["btn_preset_2"], callback_data="preset:2")],
         [InlineKeyboardButton(text="📸 " + I18N["ru"]["btn_preset_3"], callback_data="preset:3")],
     ]
-    # строка с действиями
     row2 = []
     if has_caption:
         row2.append(InlineKeyboardButton(text="✍️ " + I18N["ru"]["btn_use_caption"], callback_data="preset:usecap"))
@@ -254,7 +253,7 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     t3  = "💫 " + I18N[lang]["buy_btn_3"]
     t5  = "💫 " + I18N[lang]["buy_btn_5"]
     t10 = "💫 " + I18N[lang]["buy_btn_10"]
-    # под видео сделаем в две строки, чтобы кнопки были крупные и читабельные
+    # делаем крупные кнопки под видео (по две в строке начиная со 2-й)
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3")],
         [InlineKeyboardButton(text=t5,  callback_data="buy:pack_5"),
@@ -442,31 +441,29 @@ async def on_preset(query: CallbackQuery):
 
         video_url = result["url"]
 
-        # 3) Скачиваем видео локально и отправляем пользователю
-tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{photo.file_unique_id}.mp4")
-await download_file(video_url, tmp_video_path)
+        # скачиваем и отсылаем готовый ролик с CTA-кнопками покупки
+        tmp_video_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{file_id}.mp4")
+        await download_file(video_url, tmp_video_path)
+        await bot.send_video(
+            chat_id=query.message.chat.id,
+            video=FSInputFile(tmp_video_path),
+            caption="Готово! ✨",
+            reply_markup=buy_cta_keyboard(uid),  # кнопки 3/5/10 звёзд сразу под видео
+        )
 
-await bot.send_video(
-    chat_id=query.message.chat.id,
-    video=FSInputFile(tmp_video_path),
-    caption="Готово! ✨",
-    reply_markup=buy_cta_keyboard(uid),  # добавили кнопки с 3/5/10 звёзд
-)
+        # списываем кредит или отмечаем бесплатное использование
+        if had_paid and user_credits.get(uid, 0) > 0:
+            user_credits[uid] -= 1
+        else:
+            limiter.mark_used(uid)
 
-# списываем кредит или отмечаем бесплатное использование
-if user_credits.get(uid, 0) > 0:
-    user_credits[uid] -= 1
-else:
-    limiter.mark_used(uid)
+        try:
+            os.remove(tmp_video_path)
+        except Exception:
+            pass
 
-try:
-    os.remove(tmp_video_path)
-except Exception:
-    pass
-
-# чистим состояние (не затираем сообщение с видео)
-pending_photo.pop(uid, None)
-
+        # чистим состояние (не затираем сообщение с видео)
+        pending_photo.pop(uid, None)
 
     except Exception as e:
         logger.exception("Preset flow failed: %s", e)
