@@ -3,7 +3,7 @@ import asyncio
 import logging
 import json
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -14,6 +14,8 @@ from aiogram.types import (
     CallbackQuery,
     LabeledPrice,
     PreCheckoutQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
 from aiogram.filters import CommandStart, Command
 from aiogram.enums.parse_mode import ParseMode
@@ -123,11 +125,8 @@ PRESET_PROMPTS_BASE = [
 
 # Языковые вариации промптов (все на EN, но с нюансами под регион)
 PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
-    # 🇺🇦 — оставим базовые EN-промпты (лучшее качество), можно позже докрутить
     "ua": PRESET_PROMPTS_BASE,
-    # 🇬🇧 — тоже базовые
     "en": PRESET_PROMPTS_BASE,
-    # 🇪🇸 — чуть более эмоциональные описания
     "es": [
         "warm natural smile, slight head turn right, photorealistic skin texture",        # 1
         "cinematic close-up portrait, subtle breathing, soft studio light, 24fps",        # 2
@@ -139,7 +138,6 @@ PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
         "strong dramatic lighting, deep shadows, intense cinematic mood, expressive face",# 8
         "fashion editorial portrait, soft bounce light, elegant slow head movement",      # 9
     ],
-    # 🇵🇹 (BR) — мягкие, «тёплые» формулировки
     "pt": [
         "soft natural smile, slight head turn, realistic skin and eyes",                  # 1
         "cinematic portrait shot, calm breathing, soft studio light, 24fps look",         # 2
@@ -209,7 +207,6 @@ PRESET_TITLES: Dict[str, list[str]] = {
     ],
 }
 
-
 pending_photo: Dict[int, Dict[str, str]] = {}  # user_id -> {"file_id":..., "caption":...}
 
 
@@ -217,12 +214,7 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
     kb = [
-        [
-            InlineKeyboardButton(
-                text=titles[i],
-                callback_data=f"preset:{i+1}"
-            )
-        ]
+        [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
         for i in range(len(titles))
     ]
     # нижний ряд — свой промпт / отмена (локализовано)
@@ -284,6 +276,68 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     )
 
 
+# ---------- Главное меню (ReplyKeyboard) ----------
+
+MENU_BUTTONS = {
+    "ua": {
+        "animate": "🪄 Оживити фото",
+        "buy": "💫 Купити генерації",
+        "support": "🆘 Підтримка",
+        "share": "📤 Розповісти друзям",
+        "balance": "💰 Баланс",
+    },
+    "en": {
+        "animate": "🪄 Animate photo",
+        "buy": "💫 Buy generations",
+        "support": "🆘 Support",
+        "share": "📤 Tell friends",
+        "balance": "💰 Balance",
+    },
+    "es": {
+        "animate": "🪄 Animar foto",
+        "buy": "💫 Comprar generaciones",
+        "support": "🆘 Soporte",
+        "share": "📤 Contar a amigos",
+        "balance": "💰 Balance",
+    },
+    "pt": {
+        "animate": "🪄 Animar foto",
+        "buy": "💫 Comprar gerações",
+        "support": "🆘 Suporte",
+        "share": "📤 Contar aos amigos",
+        "balance": "💰 Saldo",
+    },
+}
+
+
+def get_menu_labels(lang: str) -> Dict[str, str]:
+    return MENU_BUTTONS.get(lang, MENU_BUTTONS["en"])
+
+
+def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
+    lang = get_lang(uid)
+    labels = get_menu_labels(lang)
+    # Ряды:
+    # 1: Оживить фото
+    # 2: Купить генерации / Баланс
+    # 3: Поддержка / Рассказать друзьям
+    kb = ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        keyboard=[
+            [KeyboardButton(text=labels["animate"])],
+            [
+                KeyboardButton(text=labels["buy"]),
+                KeyboardButton(text=labels["balance"]),
+            ],
+            [
+                KeyboardButton(text=labels["support"]),
+                KeyboardButton(text=labels["share"]),
+            ],
+        ],
+    )
+    return kb
+
+
 # ---------- Handlers ----------
 
 @dp.message(CommandStart())
@@ -304,7 +358,7 @@ async def on_start(message: Message):
         await message.answer(text, reply_markup=lang_choice_keyboard())
         return
 
-    await message.answer(tr(uid, "welcome"))
+    await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
 
 
 @dp.callback_query(F.data.startswith("lang:"))
@@ -316,7 +370,7 @@ async def on_lang_set(query: CallbackQuery):
         return
     user_lang[uid] = code
     await query.message.edit_text(tr(uid, "lang_set"))
-    await query.message.answer(tr(uid, "welcome"))
+    await query.message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
     await query.answer()
 
 
@@ -338,6 +392,12 @@ async def on_balance(message: Message):
     await message.answer(
         tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
     )
+
+
+@dp.message(Command("menu"))
+async def on_menu(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
 
 
 @dp.callback_query(F.data.startswith("buy:"))
@@ -387,6 +447,85 @@ async def on_payment(message: Message):
         )
     )
 
+
+# ---------- Главное меню: обработка нажатий (текстовых кнопок) ----------
+
+@dp.message(F.text)
+async def on_text(message: Message):
+    # Если это не команда и не фото, проверяем — не кнопка ли это из меню
+    text = message.text or ""
+    uid = message.from_user.id if message.from_user else 0
+    lang = get_lang(uid)
+    labels = get_menu_labels(lang)
+
+    # ОЖИВИТЬ ФОТО
+    if text == labels["animate"]:
+        await message.answer(
+            {
+                "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
+                "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
+                "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
+                "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
+            }.get(lang, "🪄 Send me a photo and I’ll animate it.")
+        )
+        return
+
+    # КУПИТЬ ГЕНЕРАЦИИ
+    if text == labels["buy"]:
+        await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
+        return
+
+    # БАЛАНС
+    if text == labels["balance"]:
+        await message.answer(
+            tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
+        )
+        return
+
+    # ПОДДЕРЖКА
+    if text == labels["support"]:
+        await message.answer(
+            {
+                "ua": "🆘 Якщо щось пішло не так — просто напиши сюди повідомлення, і живий маг-розробник це побачить.",
+                "en": "🆘 If something went wrong — just write your question here, the human behind this bot will see it.",
+                "es": "🆘 Si algo salió mal, escribe tu mensaje aquí y el humano detrás del bot lo verá.",
+                "pt": "🆘 Se algo der errado, escreva sua mensagem aqui e a pessoa por trás do bot vai ver.",
+            }.get(lang, "🆘 Just write your question here and the human behind this bot will see it.")
+        )
+        return
+
+    # РАССКАЗАТЬ ДРУЗЬЯМ
+    if text == labels["share"]:
+        share_texts = {
+            "ua": (
+                "📤 Поділись ботом з друзями:\n"
+                "Оживляємо фото в стилі Гаррі Поттера 🎬🪄\n"
+                "https://t.me/LIvePotterPhotoBot"
+            ),
+            "en": (
+                "📤 Share this bot with friends:\n"
+                "We animate photos like in Harry Potter portraits 🎬🪄\n"
+                "https://t.me/LIvePotterPhotoBot"
+            ),
+            "es": (
+                "📤 Comparte este bot con tus amigos:\n"
+                "Animamos fotos como los retratos de Harry Potter 🎬🪄\n"
+                "https://t.me/LIvePotterPhotoBot"
+            ),
+            "pt": (
+                "📤 Compartilhe este bot com seus amigos:\n"
+                "Animamos fotos como nos retratos de Harry Potter 🎬🪄\n"
+                "https://t.me/LIvePotterPhotoBot"
+            ),
+        }
+        await message.answer(share_texts.get(lang, share_texts["en"]))
+        return
+
+    # Если это не кнопка меню — просто игнорируем, не ломая другие хэндлеры
+    # (например, подпись под фото уже обрабатывается в других местах)
+
+
+# ---------- Фото + пресеты ----------
 
 @dp.message(F.photo)
 async def on_photo(message: Message):
