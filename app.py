@@ -451,6 +451,26 @@ async def on_payment(message: Message):
         )
     )
 
+@dp.message(Command("admin"))
+async def admin_panel(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    if uid != ADMIN_USER_ID:
+        await message.answer("⛔️ You are not an admin.")
+        return
+
+    users = len(user_credits)
+    credits_total = sum(user_credits.values())
+    free_used = limiter.total_count()
+
+    text = (
+        "🛠 <b>Admin Panel</b>\n\n"
+        f"👥 Users with any credits: <b>{users}</b>\n"
+        f"💳 Total paid credits: <b>{credits_total}</b>\n"
+        f"🆓 Free animations used: <b>{free_used}</b>\n"
+    )
+
+    await message.answer(text)
+
 
 # ---------- Главное меню: текстовые кнопки + поддержка ----------
 
