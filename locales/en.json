@@ -1,1 +1,22 @@
+{
+  "welcome": "<b>Hi!</b> Send me a <b>photo</b> (and optional prompt in caption).\nI will turn it into a short magic video.\n\nTip: front-facing portraits with good lighting work best ✨",
+  "pricing": "<b>Pricing:</b>\n• 1 free video per user\n• Packs: 1 / 3 / 5 / 10 videos for Stars",
+  "invite_only": "This bot is invite-only for now. Contact the admin.",
+  "free_used": "You already used your free video. See /pricing or press the buttons below 👇",
+  "status_work": "🎞 Working on your magic video... ~20–60 seconds",
+  "fail": "I couldn’t animate this photo. Try another one, please.",
+  "done": "Done! ✨",
+  "choose_preset": "Choose the animation style:",
+  "btn_use_caption": "Use my prompt",
+  "btn_cancel": "Cancel",
+  "cancelled": "Cancelled.",
+  "buy_title": "Choose a pack:",
+  "buy_btn_1": "1 video — 150 ⭐",
+  "buy_btn_3": "3 videos — 300 ⭐",
+  "buy_btn_5": "5 videos — 450 ⭐",
+  "buy_btn_10": "10 videos — 800 ⭐",
+  "balance_title": "💰 Balance\n• Credits: {credits}",
+  "paid_ok": "✅ Payment successful! Added {credits} animations. New balance: {balance}.",
+  "lang_set": "Language switched to English ✅"
+}
 
