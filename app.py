@@ -36,6 +36,7 @@ logger = logging.getLogger("magicphotobot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
+SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # опционально: чат/канал для поддержки
 ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
@@ -209,7 +210,6 @@ PRESET_TITLES: Dict[str, list[str]] = {
 
 pending_photo: Dict[int, Dict[str, str]] = {}  # user_id -> {"file_id":..., "caption":...}
 
-
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
@@ -317,10 +317,6 @@ def get_menu_labels(lang: str) -> Dict[str, str]:
 def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
-    # Ряды:
-    # 1: Оживить фото
-    # 2: Купить генерации / Баланс
-    # 3: Поддержка / Рассказать друзьям
     kb = ReplyKeyboardMarkup(
         resize_keyboard=True,
         keyboard=[
@@ -336,6 +332,10 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
         ],
     )
     return kb
+
+
+# ---------- Состояние поддержки ----------
+awaiting_support: Dict[int, bool] = {}  # user_id -> True/False
 
 
 # ---------- Handlers ----------
@@ -370,7 +370,10 @@ async def on_lang_set(query: CallbackQuery):
         return
     user_lang[uid] = code
     await query.message.edit_text(tr(uid, "lang_set"))
-    await query.message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
+    await query.message.answer(
+        tr(uid, "welcome"),
+        reply_markup=main_menu_keyboard(uid)
+    )
     await query.answer()
 
 
@@ -397,6 +400,7 @@ async def on_balance(message: Message):
 @dp.message(Command("menu"))
 async def on_menu(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    awaiting_support.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
 
 
@@ -448,18 +452,18 @@ async def on_payment(message: Message):
     )
 
 
-# ---------- Главное меню: обработка нажатий (текстовых кнопок) ----------
+# ---------- Главное меню: текстовые кнопки + поддержка ----------
 
 @dp.message(F.text)
 async def on_text(message: Message):
-    # Если это не команда и не фото, проверяем — не кнопка ли это из меню
     text = message.text or ""
     uid = message.from_user.id if message.from_user else 0
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
-    # ОЖИВИТЬ ФОТО
+    # 1) Сначала проверяем — это одна из кнопок меню?
     if text == labels["animate"]:
+        awaiting_support.pop(uid, None)
         await message.answer(
             {
                 "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
@@ -470,32 +474,32 @@ async def on_text(message: Message):
         )
         return
 
-    # КУПИТЬ ГЕНЕРАЦИИ
     if text == labels["buy"]:
+        awaiting_support.pop(uid, None)
         await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
         return
 
-    # БАЛАНС
     if text == labels["balance"]:
+        awaiting_support.pop(uid, None)
         await message.answer(
             tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
         )
         return
 
-    # ПОДДЕРЖКА
     if text == labels["support"]:
-        await message.answer(
-            {
-                "ua": "🆘 Якщо щось пішло не так — просто напиши сюди повідомлення, і живий маг-розробник це побачить.",
-                "en": "🆘 If something went wrong — just write your question here, the human behind this bot will see it.",
-                "es": "🆘 Si algo salió mal, escribe tu mensaje aquí y el humano detrás del bot lo verá.",
-                "pt": "🆘 Se algo der errado, escreva sua mensagem aqui e a pessoa por trás do bot vai ver.",
-            }.get(lang, "🆘 Just write your question here and the human behind this bot will see it.")
-        )
+        # Включаем режим поддержки
+        awaiting_support[uid] = True
+        msg = {
+            "ua": "🆘 Напиши, будь ласка, своє запитання або проблему одним повідомленням — я передам це живому магу підтримки.",
+            "en": "🆘 Please write your question or issue in one message — I’ll send it to the human support wizard.",
+            "es": "🆘 Escribe tu pregunta o problema en un solo mensaje — lo enviaré al mago de soporte humano.",
+            "pt": "🆘 Escreva sua pergunta ou problema em uma única mensagem — eu vou enviar para o mago humano de suporte.",
+        }.get(lang, "🆘 Please write your question in one message — I’ll send it to human support.")
+        await message.answer(msg)
         return
 
-    # РАССКАЗАТЬ ДРУЗЬЯМ
     if text == labels["share"]:
+        awaiting_support.pop(uid, None)
         share_texts = {
             "ua": (
                 "📤 Поділись ботом з друзями:\n"
@@ -521,8 +525,35 @@ async def on_text(message: Message):
         await message.answer(share_texts.get(lang, share_texts["en"]))
         return
 
-    # Если это не кнопка меню — просто игнорируем, не ломая другие хэндлеры
-    # (например, подпись под фото уже обрабатывается в других местах)
+    # 2) Если это не кнопка меню — возможно, это сообщение для поддержки
+    if awaiting_support.get(uid):
+        # Куда слать: SUPPORT_CHAT_ID > ADMIN_USER_ID
+        dest = SUPPORT_CHAT_ID or ADMIN_USER_ID
+        if dest:
+            username = (message.from_user.username if message.from_user else None) or "unknown"
+            header = f"📩 Support message from @{username} (id={uid}):"
+            try:
+                await bot.send_message(
+                    chat_id=dest,
+                    text=f"{header}\n\n{text}"
+                )
+                confirm = {
+                    "ua": "✅ Дякую! Я передав твоє повідомлення магу підтримки. Він відповість, щойно зможе.",
+                    "en": "✅ Thanks! I’ve sent your message to support. They will reply as soon as possible.",
+                    "es": "✅ ¡Gracias! He enviado tu mensaje al soporte. Te responderán lo antes posible.",
+                    "pt": "✅ Obrigado! Eu enviei sua mensagem para o suporte. Eles vão responder assim que possível.",
+                }.get(lang, "✅ Thanks! I’ve sent your message to support.")
+                await message.answer(confirm)
+            except Exception as e:
+                logger.exception("Failed to send support message: %s", e)
+                await message.answer("⚠️ Support is temporarily unavailable. Please try again later.")
+        else:
+            await message.answer("⚠️ Support is not configured yet. Contact bot admin.")
+        awaiting_support.pop(uid, None)
+        return
+
+    # 3) Иначе просто игнорируем текст — другие хэндлеры (фото и т.п.) его подхватят/или нет
+    # Ничего не делаем здесь
 
 
 # ---------- Фото + пресеты ----------
@@ -530,6 +561,7 @@ async def on_text(message: Message):
 @dp.message(F.photo)
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    awaiting_support.pop(uid, None)
 
     if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
         await message.answer(tr(uid, "free_used"))
