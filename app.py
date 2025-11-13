@@ -36,7 +36,7 @@ logger = logging.getLogger("magicphotobot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
-SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # опционально: чат/канал для поддержки
+SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # чат/канал для поддержки (опц.)
 ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
@@ -108,7 +108,6 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
-
 # ---------- Пресеты (региональные) ----------
 
 # Базовые EN-промпты (fallback для всех)
@@ -160,7 +159,7 @@ def get_preset_prompt(lang: str, idx: int) -> str:
     return PRESET_PROMPTS_BASE[0]
 
 
-# Локализованные подписи кнопок пресетов (названия, не промпты)
+# Локализованные подписи кнопок пресетов
 PRESET_TITLES: Dict[str, list[str]] = {
     "en": [
         "😊 Natural smile",
@@ -217,7 +216,6 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
         for i in range(len(titles))
     ]
-    # нижний ряд — свой промпт / отмена (локализовано)
     row2 = []
     if has_caption:
         row2.append(
@@ -235,8 +233,8 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     kb.append(row2)
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+# ---------- Stars (XTR) тарифы и кредиты ----------
 
-# ---------- Stars (XTR) тарифы ----------
 PACKS = {
     "pack_1": ("1 animation", 1, 150),
     "pack_3": ("3 animations", 3, 300),
@@ -244,7 +242,6 @@ PACKS = {
     "pack_10": ("10 animations", 10, 800),
 }
 user_credits: Dict[int, int] = {}  # user_id -> credits
-
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
@@ -274,7 +271,6 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
         ]
     )
-
 
 # ---------- Главное меню (ReplyKeyboard) ----------
 
@@ -333,10 +329,55 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     )
     return kb
 
+# ---------- Поддержка (support) ----------
 
-# ---------- Состояние поддержки ----------
-awaiting_support: Dict[int, bool] = {}  # user_id -> True/False
+awaiting_support: Dict[int, bool] = {}  # user_id -> waiting for support message
 
+# ---------- АДМИНСКИЕ СЧЁТЧИКИ И TEST MODE ----------
+
+TEST_MODE = False  # если True — для ADMIN_USER_ID анимации не списывают кредиты/фри лимиты
+pack_stats: Dict[str, int] = {key: 0 for key in PACKS.keys()}
+gen_success: int = 0
+gen_fail: int = 0
+
+
+def admin_keyboard() -> InlineKeyboardMarkup:
+    mode = "🧪 Test mode: ON" if TEST_MODE else "🧪 Test mode: OFF"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Stats", callback_data="admin:stats"),
+                InlineKeyboardButton(text="👥 Users", callback_data="admin:users"),
+            ],
+            [InlineKeyboardButton(text=mode, callback_data="admin:test_toggle")],
+        ]
+    )
+
+
+def build_admin_summary() -> str:
+    # пользователи с любыми платными кредитами
+    paid_users = [uid for uid, c in user_credits.items() if c > 0]
+    total_paid_credits = sum(user_credits.values())
+    free_users_count = limiter.users_count()
+    free_used_total = limiter.total_count()
+
+    lines = []
+    lines.append("🛠 <b>Admin Panel</b>")
+    lines.append("")
+    lines.append(f"🧪 Test mode: <b>{'ON' if TEST_MODE else 'OFF'}</b>")
+    lines.append("")
+    lines.append(f"💳 Users with paid credits: <b>{len(paid_users)}</b>")
+    lines.append(f"💰 Total paid credits: <b>{total_paid_credits}</b>")
+    lines.append(f"🆓 Free users count: <b>{free_users_count}</b>")
+    lines.append(f"🆓 Free animations used: <b>{free_used_total}</b>")
+    lines.append("")
+    lines.append(f"🎞 Generations: success=<b>{gen_success}</b>, fail=<b>{gen_fail}</b>")
+    lines.append("")
+    lines.append("📦 Packs purchased:")
+    for code, cnt in pack_stats.items():
+        title = PACKS.get(code, ("?", 0, 0))[0]
+        lines.append(f"• {code} ({title}) — <b>{cnt}</b> times")
+    return "\n".join(lines)
 
 # ---------- Handlers ----------
 
@@ -358,6 +399,7 @@ async def on_start(message: Message):
         await message.answer(text, reply_markup=lang_choice_keyboard())
         return
 
+    awaiting_support.pop(uid, None)
     await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
 
 
@@ -369,6 +411,7 @@ async def on_lang_set(query: CallbackQuery):
         await query.answer("Language not available", show_alert=True)
         return
     user_lang[uid] = code
+    awaiting_support.pop(uid, None)
     await query.message.edit_text(tr(uid, "lang_set"))
     await query.message.answer(
         tr(uid, "welcome"),
@@ -403,6 +446,71 @@ async def on_menu(message: Message):
     awaiting_support.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
 
+# ---------- /admin и admin callbacks ----------
+
+@dp.message(Command("admin"))
+async def on_admin(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    if uid != ADMIN_USER_ID:
+        await message.answer("⛔️ You are not an admin.")
+        return
+    text = build_admin_summary()
+    await message.answer(text, reply_markup=admin_keyboard())
+
+
+@dp.callback_query(F.data.startswith("admin:"))
+async def on_admin_action(query: CallbackQuery):
+    uid = query.from_user.id
+    if uid != ADMIN_USER_ID:
+        await query.answer("Not admin", show_alert=True)
+        return
+
+    action = query.data.split(":", 1)[1]
+    global TEST_MODE
+
+    if action == "stats":
+        text = build_admin_summary()
+        await query.message.edit_text(text, reply_markup=admin_keyboard())
+        await query.answer("Stats updated")
+        return
+
+    if action == "users":
+        # показываем укороченный список пользователей
+        all_ids = set(user_credits.keys())
+        # попробуем вытащить тех, кто пользовался free лимитом
+        try:
+            free_usage = getattr(limiter, "_usage", {})
+            all_ids.update(free_usage.keys())
+        except Exception:
+            free_usage = {}
+        if not all_ids:
+            await query.message.edit_text("👥 No users yet.", reply_markup=admin_keyboard())
+            await query.answer()
+            return
+
+        lines = ["👥 <b>Users snapshot</b> (top 50):"]
+        for i, u in enumerate(sorted(all_ids)):
+            if i >= 50:
+                lines.append("… (truncated)")
+                break
+            lang = get_lang(u)
+            paid = user_credits.get(u, 0)
+            free_used = free_usage.get(u, 0) if isinstance(free_usage, dict) else "?"
+            lines.append(f"• id={u}, lang={lang}, paid={paid}, free_used={free_used}")
+        text = "\n".join(lines)
+        await query.message.edit_text(text, reply_markup=admin_keyboard())
+        await query.answer("Users list")
+        return
+
+    if action == "test_toggle":
+        TEST_MODE = not TEST_MODE
+        status = "ON" if TEST_MODE else "OFF"
+        text = build_admin_summary()
+        await query.message.edit_text(text, reply_markup=admin_keyboard())
+        await query.answer(f"Test mode {status}", show_alert=True)
+        return
+
+# ---------- Покупка пакетов ----------
 
 @dp.callback_query(F.data.startswith("buy:"))
 async def on_buy_click(query: CallbackQuery):
@@ -444,33 +552,17 @@ async def on_payment(message: Message):
         return
     title, credits, amount = pack
     user_credits[uid] = user_credits.get(uid, 0) + credits
+
+    global pack_stats
+    if payload in pack_stats:
+        pack_stats[payload] += 1
+
     await message.answer(
         tr(uid, "paid_ok").format(
             credits=credits,
             balance=user_credits[uid],
         )
     )
-
-@dp.message(Command("admin"))
-async def admin_panel(message: Message):
-    uid = message.from_user.id if message.from_user else 0
-    if uid != ADMIN_USER_ID:
-        await message.answer("⛔️ You are not an admin.")
-        return
-
-    users = len(user_credits)
-    credits_total = sum(user_credits.values())
-    free_used = limiter.total_count()
-
-    text = (
-        "🛠 <b>Admin Panel</b>\n\n"
-        f"👥 Users with any credits: <b>{users}</b>\n"
-        f"💳 Total paid credits: <b>{credits_total}</b>\n"
-        f"🆓 Free animations used: <b>{free_used}</b>\n"
-    )
-
-    await message.answer(text)
-
 
 # ---------- Главное меню: текстовые кнопки + поддержка ----------
 
@@ -481,7 +573,7 @@ async def on_text(message: Message):
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
-    # 1) Сначала проверяем — это одна из кнопок меню?
+    # кнопка "Оживить фото"
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
         await message.answer(
@@ -494,11 +586,13 @@ async def on_text(message: Message):
         )
         return
 
+    # кнопка "Купить генерации"
     if text == labels["buy"]:
         awaiting_support.pop(uid, None)
         await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
         return
 
+    # кнопка "Баланс"
     if text == labels["balance"]:
         awaiting_support.pop(uid, None)
         await message.answer(
@@ -506,8 +600,8 @@ async def on_text(message: Message):
         )
         return
 
+    # кнопка "Поддержка"
     if text == labels["support"]:
-        # Включаем режим поддержки
         awaiting_support[uid] = True
         msg = {
             "ua": "🆘 Напиши, будь ласка, своє запитання або проблему одним повідомленням — я передам це живому магу підтримки.",
@@ -518,6 +612,7 @@ async def on_text(message: Message):
         await message.answer(msg)
         return
 
+    # кнопка "Рассказать друзьям"
     if text == labels["share"]:
         awaiting_support.pop(uid, None)
         share_texts = {
@@ -545,9 +640,8 @@ async def on_text(message: Message):
         await message.answer(share_texts.get(lang, share_texts["en"]))
         return
 
-    # 2) Если это не кнопка меню — возможно, это сообщение для поддержки
+    # если мы ждём сообщение для поддержки
     if awaiting_support.get(uid):
-        # Куда слать: SUPPORT_CHAT_ID > ADMIN_USER_ID
         dest = SUPPORT_CHAT_ID or ADMIN_USER_ID
         if dest:
             username = (message.from_user.username if message.from_user else None) or "unknown"
@@ -572,9 +666,7 @@ async def on_text(message: Message):
         awaiting_support.pop(uid, None)
         return
 
-    # 3) Иначе просто игнорируем текст — другие хэндлеры (фото и т.п.) его подхватят/или нет
-    # Ничего не делаем здесь
-
+    # иначе текст просто игнорим — фото и прочее ловят другие хэндлеры
 
 # ---------- Фото + пресеты ----------
 
@@ -583,9 +675,13 @@ async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
     awaiting_support.pop(uid, None)
 
-    if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
-        await message.answer(tr(uid, "free_used"))
-        return
+    is_admin = (uid == ADMIN_USER_ID)
+
+    # Лимит бесплатных только если это не админ в test mode
+    if not (TEST_MODE and is_admin):
+        if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
+            await message.answer(tr(uid, "free_used"))
+            return
 
     photo = message.photo[-1]
     pending_photo[uid] = {
@@ -604,6 +700,7 @@ async def on_preset(query: CallbackQuery):
     uid = query.from_user.id
     data = query.data.split(":", 1)[1]
     info = pending_photo.get(uid)
+    is_admin = (uid == ADMIN_USER_ID)
 
     if not info:
         await query.message.edit_text(tr(uid, "fail"))
@@ -633,9 +730,13 @@ async def on_preset(query: CallbackQuery):
             source_image_url=file_url,
             prompt=prompt,
         )
+        global gen_success, gen_fail
         if not result.get("ok"):
+            gen_fail += 1
             await query.message.edit_text(tr(uid, "fail"))
             return
+
+        gen_success += 1
 
         video_url = result["url"]
         tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
@@ -648,10 +749,12 @@ async def on_preset(query: CallbackQuery):
             reply_markup=buy_cta_keyboard(uid),
         )
 
-        if had_paid and user_credits.get(uid, 0) > 0:
-            user_credits[uid] -= 1
-        else:
-            limiter.mark_used(uid)
+        # списываем только если это не админ в test mode
+        if not (TEST_MODE and is_admin):
+            if had_paid and user_credits.get(uid, 0) > 0:
+                user_credits[uid] -= 1
+            else:
+                limiter.mark_used(uid)
 
         try:
             os.remove(tmp_path)
@@ -661,6 +764,7 @@ async def on_preset(query: CallbackQuery):
         pending_photo.pop(uid, None)
 
     except Exception as e:
+        gen_fail += 1
         logger.exception("Animation error: %s", e)
         await query.message.edit_text("Error while processing. Try another photo.")
 
