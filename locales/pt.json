@@ -1,1 +1,22 @@
+{
+  "welcome": "<b>Oi!</b> Me envie uma <b>foto</b> (e, se quiser, um prompt na legenda).\nVou transformar isso em um vídeo mágico curto.\n\nDica: retratos de frente com boa iluminação funcionam melhor ✨",
+  "pricing": "<b>Planos:</b>\n• 1 vídeo grátis por usuário\n• Pacotes: 1 / 3 / 5 / 10 vídeos por Stars",
+  "invite_only": "Este bot está disponível apenas por convite. Fale com o administrador.",
+  "free_used": "Você já usou o seu vídeo grátis. Veja /pricing ou use os botões abaixo 👇",
+  "status_work": "🎞 Criando o seu vídeo mágico... ~20–60 segundos",
+  "fail": "Não consegui animar esta foto. Tente outra, por favor.",
+  "done": "Pronto! ✨",
+  "choose_preset": "Escolha o estilo de animação:",
+  "btn_use_caption": "Usar minha legenda",
+  "btn_cancel": "Cancelar",
+  "cancelled": "Cancelado.",
+  "buy_title": "Escolha um pacote:",
+  "buy_btn_1": "1 vídeo — 150 ⭐",
+  "buy_btn_3": "3 vídeos — 300 ⭐",
+  "buy_btn_5": "5 vídeos — 450 ⭐",
+  "buy_btn_10": "10 vídeos — 800 ⭐",
+  "balance_title": "💰 Saldo\n• Créditos: {credits}",
+  "paid_ok": "✅ Pagamento aprovado! {credits} animações adicionadas. Novo saldo: {balance}.",
+  "lang_set": "Idioma alterado para português ✅"
+}
 
