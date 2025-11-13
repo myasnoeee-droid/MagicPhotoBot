@@ -1,127 +1,158 @@
 import os
-import time
 import asyncio
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Any, List
 
-import requests
+import aiohttp
 
 logger = logging.getLogger("processing")
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")
 
-# WAN controls via env
-WAN_RESOLUTION = os.getenv("WAN_RESOLUTION", "720p")  # 480p/720p/1080p (check model docs)
-WAN_DURATION = os.getenv("WAN_DURATION", "5")         # seconds
-WAN_SEED = os.getenv("WAN_SEED", "")                  # optional int
+# Тонкая настройка через ENV (безопасные дефолты)
+ANIMATE_CONCURRENCY = int(os.getenv("ANIMATE_CONCURRENCY", "4"))   # одновременных задач к Replicate
+ANIMATE_TIMEOUT     = int(os.getenv("ANIMATE_TIMEOUT", "180"))      # общий таймаут одной генерации, сек
+ANIMATE_POLL        = float(os.getenv("ANIMATE_POLL", "0.8"))       # период опроса статуса, сек
 
-REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-HEADERS = {
+# Глобальный семафор — чтобы не словить rate limit провайдера и не забить CPU
+_SEM = asyncio.Semaphore(ANIMATE_CONCURRENCY)
+
+_REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
+_HEADERS = {
     "Authorization": f"Token {REPLICATE_API_TOKEN}" if REPLICATE_API_TOKEN else "",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
 }
 
-def _extract_required_fields_422(text: str):
-    try:
-        import json, re
-        data = json.loads(text)
-        fields = []
-        for item in data.get("invalid_fields", []) or []:
-            desc = item.get("description", "")
-            if " is required" in desc:
-                fields.append(desc.split(" is required")[0])
-        if not fields and isinstance(data.get("detail"), str):
-            fields = re.findall(r"([a-zA-Z_]+) is required", data["detail"]) or []
-        return list(dict.fromkeys(fields))
-    except Exception:
-        return []
+def _result_error(code: str, **extra) -> Dict[str, Any]:
+    out = {"ok": False, "code": code}
+    out.update(extra)
+    return out
 
 async def animate_photo_via_replicate(
     source_image_url: str,
-    model_override: Optional[str] = None,
-    prompt: Optional[str] = None
-) -> Dict[str, str]:
+    prompt: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Returns:
-      {"ok": True,  "url": "https://...mp4"}
-      {"ok": False, "code": "...", "msg": "..."}
+    Неблокирующая анимация через Replicate.
+    Возвращает:
+      { "ok": True, "url": "https://..." } либо { "ok": False, "code": "...", ... }
     """
-    model = model_override or REPLICATE_MODEL
-    if not REPLICATE_API_TOKEN or not model:
+    if not REPLICATE_API_TOKEN or not REPLICATE_MODEL:
         logger.error("Replicate credentials/model are not set")
-        return {"ok": False, "code": "config", "msg": "REPLICATE_API_TOKEN/REPLICATE_MODEL not set"}
+        return _result_error("config")
 
-    # WAN i2v expects: image + prompt (+ resolution/duration/seed)
-    input_payload = {
-        "image": source_image_url
+    # Минимальный кросс-модельный набор входов:
+    # image / prompt — понимают WAN i2v и большинство i2v-моделей.
+    payload = {
+        "version": REPLICATE_MODEL,
+        "input": {
+            "image": source_image_url,
+        }
     }
     if prompt:
-        input_payload["prompt"] = prompt
-    if WAN_RESOLUTION:
-        input_payload["resolution"] = WAN_RESOLUTION
-    if WAN_DURATION:
+        payload["input"]["prompt"] = prompt
+
+    # Не держим всех в одном котле — ограничиваемся семафором
+    async with _SEM:
         try:
-            input_payload["duration"] = int(WAN_DURATION)
-        except ValueError:
-            pass
-    if WAN_SEED:
-        try:
-            input_payload["seed"] = int(WAN_SEED)
-        except ValueError:
-            pass
+            timeout = aiohttp.ClientTimeout(total=ANIMATE_TIMEOUT)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # 1) Создать prediction
+                async with session.post(_REPLICATE_API_URL, json=payload, headers=_HEADERS) as resp:
+                    if resp.status == 402:
+                        # нет кредитов на Replicate
+                        text = await resp.text()
+                        logger.error("Replicate 402: %s", text)
+                        return _result_error("replicate_402")
+                    if resp.status not in (200, 201):
+                        text = await resp.text()
+                        logger.error("Replicate create failed: %s %s", resp.status, text)
+                        # Иногда указывают обязательные поля:
+                        if resp.status == 422:
+                            return _result_error("replicate_422_fields", fields=_extract_fields(text))
+                        return _result_error("replicate_create")
 
-    payload = {"version": model, "input": input_payload}
+                    pred = await resp.json()
+                    get_url = pred.get("urls", {}).get("get")
+                    if not get_url:
+                        return _result_error("replicate_create")
 
-    # 1) create prediction
-    r = requests.post(REPLICATE_API_URL, json=payload, headers=HEADERS, timeout=60)
-    if r.status_code != 201:
-        logger.error("Replicate create failed: %s %s", r.status_code, r.text)
-        if r.status_code == 402:
-            return {"ok": False, "code": "replicate_402", "msg": "Insufficient credit"}
-        if r.status_code in (401, 403):
-            return {"ok": False, "code": "replicate_auth", "msg": "Invalid token or access"}
-        if r.status_code == 422:
-            return {"ok": False, "code": "replicate_422_fields", "fields": _extract_required_fields_422(r.text)}
-        return {"ok": False, "code": "replicate_create", "msg": r.text}
+                # 2) Опрос статуса (не блокируем event loop)
+                while True:
+                    await asyncio.sleep(ANIMATE_POLL)
+                    async with session.get(get_url, headers=_HEADERS) as r2:
+                        if r2.status != 200:
+                            logger.warning("Replicate poll status=%s", r2.status)
+                            continue
+                        data = await r2.json()
+                        status = data.get("status")
+                        if status in ("succeeded", "failed", "canceled"):
+                            if status == "succeeded":
+                                out = data.get("output")
+                                url = _pick_video_url(out)
+                                if url:
+                                    return {"ok": True, "url": url}
+                                return _result_error("replicate_no_output")
+                            else:
+                                logger.error("Replicate status: %s", status)
+                                return _result_error("replicate_status", status=status)
+                        # иначе — "starting"|"processing" — продолжаем опрос
+        except asyncio.TimeoutError:
+            logger.error("Replicate timeout (>%ss)", ANIMATE_TIMEOUT)
+            return _result_error("timeout")
+        except aiohttp.ClientResponseError as e:
+            logger.exception("Replicate client error: %s", e)
+            if e.status == 401:
+                return _result_error("replicate_auth")
+            return _result_error("replicate_http")
+        except Exception as e:
+            logger.exception("Replicate unexpected: %s", e)
+            return _result_error("unexpected")
 
-    pred = r.json()
-    get_url = pred.get("urls", {}).get("get")
+def _pick_video_url(out: Any) -> Optional[str]:
+    """
+    Выбираем первый подходящий URL (mp4/gif) из ответа.
+    """
+    if isinstance(out, str):
+        return out
+    if isinstance(out, list):
+        for u in out:
+            if isinstance(u, str) and (u.endswith(".mp4") or u.endswith(".gif")):
+                return u
+        # если список строк, вернем первый
+        for u in out:
+            if isinstance(u, str):
+                return u
+    if isinstance(out, dict):
+        # некоторые модели кладут под ключ "video" или "result"
+        for k in ("video", "result", "output"):
+            v = out.get(k)
+            if isinstance(v, str):
+                return v
+    return None
 
-    # 2) poll
-    for _ in range(180):  # up to 3 minutes
-        time.sleep(1)
-        rr = requests.get(get_url, headers=HEADERS, timeout=30)
-        data = rr.json()
-        status = data.get("status")
-        if status in ("succeeded", "failed", "canceled"):
-            if status == "succeeded":
-                out = data.get("output")
-                if isinstance(out, list) and out:
-                    for u in out:
-                        if isinstance(u, str) and (u.endswith(".mp4") or u.endswith(".gif")):
-                            return {"ok": True, "url": u}
-                    if isinstance(out[0], str):
-                        return {"ok": True, "url": out[0]}
-                if isinstance(out, str):
-                    return {"ok": True, "url": out}
-                if isinstance(out, dict):
-                    maybe = out.get("video") or out.get("url")
-                    if isinstance(maybe, str):
-                        return {"ok": True, "url": maybe}
-                return {"ok": False, "code": "replicate_output", "msg": f"Unexpected output: {out}"}
-            else:
-                logger.error("Replicate status: %s", status)
-                return {"ok": False, "code": f"replicate_{status}", "msg": status}
-    return {"ok": False, "code": "replicate_timeout", "msg": "Timeout waiting result"}
+def _extract_fields(text: str) -> List[str]:
+    """
+    Пытаемся вытащить названия обязательных полей из текста 422.
+    Это эвристика — просто помогает показать юзеру подсказку.
+    """
+    fields: List[str] = []
+    lower = text.lower()
+    for key in ("face_image", "driving_video", "image", "prompt"):
+        if key in lower and key not in fields:
+            fields.append(key)
+    return fields
 
 async def download_file(url: str, dst_path: str):
-    loop = asyncio.get_running_loop()
-    def _download():
-        with requests.get(url, stream=True, timeout=300) as r:
-            r.raise_for_status()
+    """
+    Асинхронная закачка файла (без блокировок event loop).
+    """
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            resp.raise_for_status()
+            # Стримим в файл по кускам
             with open(dst_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
+                async for chunk in resp.content.iter_chunked(8192):
                     if chunk:
                         f.write(chunk)
-    await loop.run_in_executor(None, _download)
