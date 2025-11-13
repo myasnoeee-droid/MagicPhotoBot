@@ -26,8 +26,10 @@ from processing import animate_photo_via_replicate, download_file
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO,
-                    format='[%(asctime)s] %(levelname)s:%(name)s:%(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s:%(name)s:%(message)s'
+)
 logger = logging.getLogger("magicphotobot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -39,7 +41,10 @@ DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
 limiter = FreeUsageLimiter(max_free=MAX_FREE_ANIMS_PER_USER)
 
@@ -48,6 +53,7 @@ LOCALE_CODES = ("ua", "en", "es", "pt")
 DEFAULT_LANG = "en"
 LOCALES: Dict[str, Dict[str, str]] = {}
 user_lang: Dict[int, str] = {}  # user_id -> "ua"/"en"/"es"/"pt"
+
 
 def load_locales():
     base = Path(__file__).parent / "locales"
@@ -63,39 +69,47 @@ def load_locales():
         except Exception as e:
             logger.exception("Failed to load locale %s: %s", code, e)
 
+
 load_locales()
 if DEFAULT_LANG not in LOCALES:
     raise RuntimeError("Default locale not loaded (check locales/en.json).")
 
+
 def get_lang(uid: int) -> str:
     return user_lang.get(uid, DEFAULT_LANG)
+
 
 def tr(uid: int, key: str) -> str:
     lang = get_lang(uid)
     loc = LOCALES.get(lang) or LOCALES[DEFAULT_LANG]
     return loc.get(key, LOCALES[DEFAULT_LANG].get(key, ""))
 
+
 def tr_lang(lang: str, key: str) -> str:
     loc = LOCALES.get(lang) or LOCALES[DEFAULT_LANG]
     return loc.get(key, LOCALES[DEFAULT_LANG].get(key, ""))
 
+
 def lang_choice_keyboard() -> InlineKeyboardMarkup:
-    # Язык выбираем 1 раз, под магический текст
+    # Магический экран выбора языка
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang:ua"),
-                InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")
+                InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en"),
             ],
             [
                 InlineKeyboardButton(text="🇪🇸 Español", callback_data="lang:es"),
-                InlineKeyboardButton(text="🇵🇹 Português", callback_data="lang:pt")
-            ]
+                InlineKeyboardButton(text="🇵🇹 Português", callback_data="lang:pt"),
+            ],
         ]
     )
 
-# ---------- Пресеты (9 вариантов, промпты на EN) ----------
-PRESET_PROMPTS = [
+
+# ---------- Пресеты (региональные) ----------
+
+# Базовые EN-промпты (fallback для всех)
+PRESET_PROMPTS_BASE = [
     "natural smile, slight head turn right, photorealistic",                     # 1 Natural smile
     "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 2 Cinematic look
     "gentle movement, hair flutter, soft focus, ethereal glow",                 # 3 Dreamy motion
@@ -104,14 +118,52 @@ PRESET_PROMPTS = [
     "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 6 Wink
     "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 7 Vintage film
     "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 8 Dramatic lighting
-    "editorial portrait, soft bounce light, slight head movement, elegant expression" # 9 Editorial portrait
+    "editorial portrait, soft bounce light, slight head movement, elegant expression",  # 9 Editorial portrait
 ]
 
-pending_photo: Dict[int, Dict[str, str]] = {}
+# Языковые вариации промптов (все на EN, но с нюансами под регион)
+PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
+    # 🇺🇦 — оставим базовые EN-промпты (лучшее качество), можно позже докрутить
+    "ua": PRESET_PROMPTS_BASE,
+    # 🇬🇧 — тоже базовые
+    "en": PRESET_PROMPTS_BASE,
+    # 🇪🇸 — чуть более эмоциональные описания
+    "es": [
+        "warm natural smile, slight head turn right, photorealistic skin texture",        # 1
+        "cinematic close-up portrait, subtle breathing, soft studio light, 24fps",        # 2
+        "gentle flowing movement, light hair flutter, dreamy soft focus, ethereal glow",  # 3
+        "soft smile, relaxed head tilt, very expressive eyes, warm golden lighting",      # 4
+        "slow gentle eye blink, slow smile, cinematic contrast, photorealistic detail",   # 5
+        "playful subtle wink, small smile, natural head motion, beauty lighting",         # 6
+        "nostalgic vintage 35mm film look, film grain, warm tones, subtle motion",        # 7
+        "strong dramatic lighting, deep shadows, intense cinematic mood, expressive face",# 8
+        "fashion editorial portrait, soft bounce light, elegant slow head movement",      # 9
+    ],
+    # 🇵🇹 (BR) — мягкие, «тёплые» формулировки
+    "pt": [
+        "soft natural smile, slight head turn, realistic skin and eyes",                  # 1
+        "cinematic portrait shot, calm breathing, soft studio light, 24fps look",         # 2
+        "smooth gentle movement, light hair motion, dreamy soft focus, glow",             # 3
+        "soft sweet smile, natural head tilt, warm expressive eyes, cozy lighting",       # 4
+        "gentle eye blink, slow friendly smile, cinematic lighting, realistic details",   # 5
+        "cute subtle wink, light smile, natural head motion, flattering light",           # 6
+        "retro 35mm film style, film grain, warm nostalgic tones, subtle motion",         # 7
+        "cinematic dramatic lighting, strong contrast, emotional portrait, deep shadows", # 8
+        "elegant editorial portrait, soft studio bounce light, slow refined movement",    # 9
+    ],
+}
 
-def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
-    # Тексты кнопок можно оставить на EN — это понятные термины, плюс иконки
-    titles = [
+
+def get_preset_prompt(lang: str, idx: int) -> str:
+    arr = PRESET_PROMPTS_BY_LANG.get(lang) or PRESET_PROMPTS_BASE
+    if 0 <= idx < len(arr):
+        return arr[idx]
+    return PRESET_PROMPTS_BASE[0]
+
+
+# Локализованные подписи кнопок пресетов (названия, не промпты)
+PRESET_TITLES: Dict[str, list[str]] = {
+    "en": [
         "😊 Natural smile",
         "🎬 Cinematic look",
         "🕊️ Dreamy motion",
@@ -121,58 +173,129 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
         "🎞 Vintage film",
         "💥 Dramatic lighting",
         "🖼 Editorial portrait",
+    ],
+    "ua": [
+        "😊 Natural smile",
+        "🎬 Cinematic look",
+        "🕊️ Dreamy motion",
+        "🔥 Expressive vibe",
+        "💡 Blink & glow",
+        "😉 Wink",
+        "🎞 Vintage film",
+        "💥 Dramatic lighting",
+        "🖼 Editorial portrait",
+    ],
+    "es": [
+        "😊 Sonrisa natural",
+        "🎬 Look cinematográfico",
+        "🕊️ Movimiento suave",
+        "🔥 Vibras expresivas",
+        "💡 Parpadeo suave & brillo",
+        "😉 Guiño sutil",
+        "🎞 Estilo película vintage",
+        "💥 Iluminación dramática",
+        "🖼 Retrato editorial",
+    ],
+    "pt": [
+        "😊 Sorriso natural",
+        "🎬 Visual cinematográfico",
+        "🕊️ Movimento suave",
+        "🔥 Vibração expressiva",
+        "💡 Piscar suave & brilho",
+        "😉 Piscadinha sutil",
+        "🎞 Filme vintage 35mm",
+        "💥 Iluminação dramática",
+        "🖼 Retrato editorial",
+    ],
+}
+
+
+pending_photo: Dict[int, Dict[str, str]] = {}  # user_id -> {"file_id":..., "caption":...}
+
+
+def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
+    kb = [
+        [
+            InlineKeyboardButton(
+                text=titles[i],
+                callback_data=f"preset:{i+1}"
+            )
+        ]
+        for i in range(len(titles))
     ]
-    kb = [[InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")] for i in range(len(titles))]
-    # нижний ряд — свой промпт / отмена, локализованные через tr(...)
+    # нижний ряд — свой промпт / отмена (локализовано)
     row2 = []
     if has_caption:
-        row2.append(InlineKeyboardButton(text=tr(uid, "btn_use_caption"), callback_data="preset:usecap"))
-    row2.append(InlineKeyboardButton(text=tr(uid, "btn_cancel"), callback_data="preset:cancel"))
+        row2.append(
+            InlineKeyboardButton(
+                text=tr(uid, "btn_use_caption"),
+                callback_data="preset:usecap",
+            )
+        )
+    row2.append(
+        InlineKeyboardButton(
+            text=tr(uid, "btn_cancel"),
+            callback_data="preset:cancel",
+        )
+    )
     kb.append(row2)
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+
 # ---------- Stars (XTR) тарифы ----------
 PACKS = {
-    "pack_1":  ("1 animation", 1, 150),
-    "pack_3":  ("3 animations", 3, 300),
-    "pack_5":  ("5 animations", 5, 450),
+    "pack_1": ("1 animation", 1, 150),
+    "pack_3": ("3 animations", 3, 300),
+    "pack_5": ("5 animations", 5, 450),
     "pack_10": ("10 animations", 10, 800),
 }
 user_credits: Dict[int, int] = {}  # user_id -> credits
 
+
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_1"),  callback_data="buy:pack_1")],
-        [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_3"),  callback_data="buy:pack_3")],
-        [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_5"),  callback_data="buy:pack_5")],
-        [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_10"), callback_data="buy:pack_10")],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_1"), callback_data="buy:pack_1")],
+            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_3"), callback_data="buy:pack_3")],
+            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_5"), callback_data="buy:pack_5")],
+            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_10"), callback_data="buy:pack_10")],
+        ]
+    )
+
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
-    t1  = "💫 " + tr_lang(lang, "buy_btn_1")
-    t3  = "💫 " + tr_lang(lang, "buy_btn_3")
-    t5  = "💫 " + tr_lang(lang, "buy_btn_5")
+    t1 = "💫 " + tr_lang(lang, "buy_btn_1")
+    t3 = "💫 " + tr_lang(lang, "buy_btn_3")
+    t5 = "💫 " + tr_lang(lang, "buy_btn_5")
     t10 = "💫 " + tr_lang(lang, "buy_btn_10")
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t1,  callback_data="buy:pack_1")],
-        [InlineKeyboardButton(text=t3,  callback_data="buy:pack_3"),
-         InlineKeyboardButton(text=t5,  callback_data="buy:pack_5")],
-        [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t1, callback_data="buy:pack_1")],
+            [
+                InlineKeyboardButton(text=t3, callback_data="buy:pack_3"),
+                InlineKeyboardButton(text=t5, callback_data="buy:pack_5"),
+            ],
+            [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
+        ]
+    )
+
 
 # ---------- Handlers ----------
+
 @dp.message(CommandStart())
 async def on_start(message: Message):
-    # белый список, если нужен
     if ALLOWED_CHAT_IDS and message.chat.id not in ALLOWED_CHAT_IDS:
-        # используем дефолтный язык для инвайта
-        await message.answer(LOCALES[DEFAULT_LANG].get("invite_only", "Invite only."))
+        await message.answer(
+            LOCALES[DEFAULT_LANG].get("invite_only", "Invite only. Contact admin.")
+        )
         return
 
     uid = message.from_user.id if message.from_user else 0
-    # если язык ещё не выбран — показываем маг-экран выбора
+
     if uid not in user_lang:
         text = (
             "🧙‍♂️ <b>Magl’sBot приветствует тебя, маг-путешественник!</b>\n\n"
@@ -182,6 +305,7 @@ async def on_start(message: Message):
         return
 
     await message.answer(tr(uid, "welcome"))
+
 
 @dp.callback_query(F.data.startswith("lang:"))
 async def on_lang_set(query: CallbackQuery):
@@ -195,20 +319,26 @@ async def on_lang_set(query: CallbackQuery):
     await query.message.answer(tr(uid, "welcome"))
     await query.answer()
 
+
 @dp.message(Command("pricing"))
 async def on_pricing(message: Message):
     uid = message.from_user.id if message.from_user else 0
     await message.answer(tr(uid, "pricing"))
+
 
 @dp.message(Command("buy"))
 async def on_buy(message: Message):
     uid = message.from_user.id if message.from_user else 0
     await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
 
+
 @dp.message(Command("balance"))
 async def on_balance(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    await message.answer(tr(uid, "balance_title").format(credits=user_credits.get(uid, 0)))
+    await message.answer(
+        tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
+    )
+
 
 @dp.callback_query(F.data.startswith("buy:"))
 async def on_buy_click(query: CallbackQuery):
@@ -221,6 +351,7 @@ async def on_buy_click(query: CallbackQuery):
 
     title, credits, amount = pack
     prices = [LabeledPrice(label=title, amount=amount)]
+
     await bot.send_invoice(
         chat_id=query.message.chat.id,
         title=title,
@@ -232,9 +363,11 @@ async def on_buy_click(query: CallbackQuery):
     )
     await query.answer()
 
+
 @dp.pre_checkout_query()
 async def on_checkout(pre: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre.id, ok=True)
+
 
 @dp.message(F.successful_payment)
 async def on_payment(message: Message):
@@ -247,13 +380,18 @@ async def on_payment(message: Message):
         return
     title, credits, amount = pack
     user_credits[uid] = user_credits.get(uid, 0) + credits
-    await message.answer(tr(uid, "paid_ok").format(credits=credits, balance=user_credits[uid]))
+    await message.answer(
+        tr(uid, "paid_ok").format(
+            credits=credits,
+            balance=user_credits[uid],
+        )
+    )
+
 
 @dp.message(F.photo)
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
 
-    # если есть платные кредиты — не ограничиваем бесплатным лимитом
     if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
         await message.answer(tr(uid, "free_used"))
         return
@@ -263,10 +401,12 @@ async def on_photo(message: Message):
         "file_id": photo.file_id,
         "caption": (message.caption or "").strip(),
     }
+
     await message.answer(
         tr(uid, "choose_preset"),
-        reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"]))
+        reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"])),
     )
+
 
 @dp.callback_query(F.data.startswith("preset:"))
 async def on_preset(query: CallbackQuery):
@@ -287,10 +427,8 @@ async def on_preset(query: CallbackQuery):
         prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
     else:
         idx = int(data) - 1
-        if 0 <= idx < len(PRESET_PROMPTS):
-            prompt = PRESET_PROMPTS[idx]
-        else:
-            prompt = "natural smile, subtle head motion, cinematic lighting"
+        lang = get_lang(uid)
+        prompt = get_preset_prompt(lang, idx)
 
     try:
         await query.message.edit_text(tr(uid, "status_work"))
@@ -300,7 +438,10 @@ async def on_preset(query: CallbackQuery):
 
         had_paid = user_credits.get(uid, 0) > 0
 
-        result = await animate_photo_via_replicate(source_image_url=file_url, prompt=prompt)
+        result = await animate_photo_via_replicate(
+            source_image_url=file_url,
+            prompt=prompt,
+        )
         if not result.get("ok"):
             await query.message.edit_text(tr(uid, "fail"))
             return
@@ -332,8 +473,10 @@ async def on_preset(query: CallbackQuery):
         logger.exception("Animation error: %s", e)
         await query.message.edit_text("Error while processing. Try another photo.")
 
+
 def main():
     asyncio.run(dp.start_polling(bot))
+
 
 if __name__ == "__main__":
     main()
