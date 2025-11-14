@@ -236,10 +236,10 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
 # ---------- Stars (XTR) тарифы и кредиты ----------
 
 PACKS = {
-    "pack_1": ("1 animation", 1, 150),
-    "pack_3": ("3 animations", 3, 300),
-    "pack_5": ("5 animations", 5, 450),
-    "pack_10": ("10 animations", 10, 800),
+    "pack_1": ("1 animation", 1, 60),
+    "pack_3": ("3 animations", 3, 150),
+    "pack_5": ("5 animations", 5, 300),
+    "pack_10": ("10 animations", 10, 500),
 }
 user_credits: Dict[int, int] = {}  # user_id -> credits
 
