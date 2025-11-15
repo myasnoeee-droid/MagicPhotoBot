@@ -1,6 +1,7 @@
 {
   "welcome": "🪄 Send me a photo and I will animate it magically ✨",
   "choose_language": "🧙‍♂️ <b>Magl’sBot welcomes you, magic traveler!</b>\n\n✨ Choose your language:",
+  "lang_set": "✅ Language selected! Now send me a photo and I’ll animate it.",
   "menu_animate": "🪄 Animate photo",
   "menu_buy": "💫 Buy generations",
   "menu_balance": "💰 Balance",
