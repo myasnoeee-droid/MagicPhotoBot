@@ -5,18 +5,34 @@
   "menu_buy": "💫 Comprar generaciones",
   "menu_balance": "💰 Balance",
   "menu_support": "🆘 Soporte",
-  "menu_share": "📤 Contar a amigos",
+  "menu_share": "📤 Compartir",
 
-  "pricing": "💫 <b>Precios de Magl’sBot</b>\n\n🆓 1 animación gratis — para probar.\n\n✨ <b>Paquetes:</b>\n\n• <b>1 animación — 60 ⭐</b>\nBuena para probar fotos antiguas.\n\n• <b>3 animaciones — 150 ⭐</b> ⭐ La más popular\nMejor relación calidad-precio.\n\n• <b>5 animaciones — 300 ⭐</b>\nPerfecto para archivos familiares.\n\n• <b>10 animaciones — 500 ⭐</b>\nGran oferta — solo 50⭐ por animación.\n\n⚡ Pago instantáneo, créditos añadidos automáticamente.",
+  "pricing": "💫 <b>Precios de Magl’sBot</b>\n\n🆓 1 animación gratis — para probar.\n\n✨ <b>Paquetes:</b>\n\n• <b>1 animación — 60 ⭐</b>\nPara probar fotos antiguas.\n\n• <b>3 animaciones — 150 ⭐</b> ⭐ La más popular\nMejor relación calidad-precio.\n\n• <b>5 animaciones — 300 ⭐</b>\nPerfecto para álbumes.\n\n• <b>10 animaciones — 500 ⭐</b>\nGran oferta — solo 50⭐ por animación.\n\n⚡ Pago instantáneo. Créditos añadidos automáticamente.",
 
   "buy_btn_1": "1 animación — 60 ⭐",
   "buy_btn_3": "3 animaciones — 150 ⭐ (la más popular)",
   "buy_btn_5": "5 animaciones — 300 ⭐",
   "buy_btn_10": "10 animaciones — 500 ⭐",
 
-  "support_sent": "📝 ¡Tu mensaje fue enviado al soporte!",
-  "send_support": "Escribe tu pregunta:",
-  "no_credits": "🔋 Sin créditos suficientes. Elige un paquete:",
   "processing": "⚙️ Procesando tu foto… tardará 20–60 segundos ✨",
-  "ready": "✨ ¡Listo! Elige tu próximo paso:"
+  "ready": "✨ ¡Listo! Elige tu siguiente acción:",
+  "no_credits": "🔋 Sin créditos suficientes. Elige un paquete:",
+  "send_support": "Escribe tu pregunta:",
+  "support_sent": "📝 Mensaje enviado al soporte!",
+
+  "choose_preset": "🎨 Elige un preset mágico:",
+  "btn_caption_yes": "👉 Usar descripción como prompt",
+  "btn_caption_no": "🔙 Volver",
+
+  "preset_desc": {
+    "1": "Sonrisa natural suave con movimiento realista.",
+    "2": "Retrato cinematográfico con luz dramática.",
+    "3": "Movimiento suave y atmosférico.",
+    "4": "Expresión emocional con luz cálida.",
+    "5": "Parpadeo suave y sonrisa natural.",
+    "6": "Guiño expresivo y realista.",
+    "7": "Estilo película 35mm retro.",
+    "8": "Iluminación dramática estilo cine.",
+    "9": "Retrato editorial elegante con luz suave."
+  }
 }
