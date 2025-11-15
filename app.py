@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import json
+import random
 from pathlib import Path
 from typing import Dict, Any
 
@@ -54,7 +55,7 @@ limiter = FreeUsageLimiter(max_free=MAX_FREE_ANIMS_PER_USER)
 # ---------- i18n через JSON-файлы ----------
 LOCALE_CODES = ("ua", "en", "es", "pt")
 DEFAULT_LANG = "en"
-LOCALES: Dict[str, Dict[str, str]] = {}
+LOCALES: Dict[str, Dict[str, Any]] = {}
 user_lang: Dict[int, str] = {}  # user_id -> "ua"/"en"/"es"/"pt"
 
 
@@ -208,15 +209,36 @@ PRESET_TITLES: Dict[str, list[str]] = {
 }
 
 pending_photo: Dict[int, Dict[str, str]] = {}  # user_id -> {"file_id":..., "caption":...}
+pending_choice: Dict[int, Dict[str, Any]] = {}  # user_id -> {"type": "preset"/"caption", "idx": int | None}
 
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
-    kb = [
-        [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
-        for i in range(len(titles))
-    ]
+
+    # Лейбл для Random magic
+    random_labels = {
+        "ua": "✨ Random magic",
+        "en": "✨ Random magic",
+        "es": "✨ Magia aleatoria",
+        "pt": "✨ Magia aleatória",
+    }
+    random_text = random_labels.get(lang, "✨ Random magic")
+
+    kb = []
+
+    # Первая строка — Random magic
+    kb.append(
+        [InlineKeyboardButton(text=random_text, callback_data="preset:random")]
+    )
+
+    # Далее — все пресеты по одному в строке
+    for i in range(len(titles)):
+        kb.append(
+            [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
+        )
+
+    # Последняя строка — использовать caption (если есть) + отмена
     row2 = []
     if has_caption:
         row2.append(
@@ -232,7 +254,31 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
         )
     )
     kb.append(row2)
+
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    confirm_labels = {
+        "ua": "✅ Запустити",
+        "en": "✅ Start",
+        "es": "✅ Iniciar",
+        "pt": "✅ Iniciar",
+    }
+    back_labels = {
+        "ua": "🔙 Назад",
+        "en": "🔙 Back",
+        "es": "🔙 Volver",
+        "pt": "🔙 Voltar",
+    }
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=confirm_labels.get(lang, "✅ Start"), callback_data="confirm:ok")],
+            [InlineKeyboardButton(text=back_labels.get(lang, "🔙 Back"), callback_data="confirm:back")],
+        ]
+    )
+    return kb
 
 # ---------- Stars (XTR) тарифы и кредиты ----------
 
@@ -723,6 +769,7 @@ async def on_photo(message: Message):
         "file_id": photo.file_id,
         "caption": (message.caption or "").strip(),
     }
+    pending_choice.pop(uid, None)
 
     await message.answer(
         tr(uid, "choose_preset"),
@@ -735,37 +782,126 @@ async def on_preset(query: CallbackQuery):
     uid = query.from_user.id
     data = query.data.split(":", 1)[1]
     info = pending_photo.get(uid)
-    is_admin = (uid == ADMIN_USER_ID)
 
     if not info:
         await query.message.edit_text(tr(uid, "fail"))
         return
 
+    # Отмена
     if data == "cancel":
         pending_photo.pop(uid, None)
+        pending_choice.pop(uid, None)
         await query.message.edit_text(tr(uid, "cancelled"))
+        await query.answer()
         return
 
+    lang = get_lang(uid)
+
+    # Текст вопроса-подтверждения
+    confirm_texts = {
+        "ua": "✅ Запустити анімацію з цим пресетом?",
+        "en": "✅ Start animation with this preset?",
+        "es": "✅ ¿Iniciar la animación con este preset?",
+        "pt": "✅ Iniciar a animação com este preset?",
+    }
+    confirm_line = confirm_texts.get(lang, confirm_texts["en"])
+
+    # Выбор по caption
     if data == "usecap":
-        prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
+        pending_choice[uid] = {"type": "caption", "idx": None}
+        desc = info["caption"] or ""
+        if desc:
+            header_text = f"📝 {desc}\n\n{confirm_line}"
+        else:
+            header_text = confirm_line
+        await query.message.edit_text(header_text, reply_markup=confirm_preset_keyboard(uid))
+        await query.answer()
+        return
+
+    # Random magic
+    if data == "random":
+        # случайный индекс от 0 до 8 (всего 9 пресетов)
+        idx = random.randint(0, len(PRESET_PROMPTS_BASE) - 1)
     else:
         idx = int(data) - 1
-        lang = get_lang(uid)
+        if idx < 0 or idx >= len(PRESET_PROMPTS_BASE):
+            await query.answer("Unknown preset")
+            return
+
+    pending_choice[uid] = {"type": "preset", "idx": idx}
+
+    titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
+    title_txt = titles[idx] if 0 <= idx < len(titles) else "Preset"
+
+    # Описание из локали
+    desc_map = LOCALES.get(lang, {}).get("preset_desc", {})
+    desc = ""
+    if isinstance(desc_map, dict):
+        desc = desc_map.get(str(idx + 1), "")
+
+    if desc:
+        header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
+    else:
+        header_text = f"🎨 {title_txt}\n\n{confirm_line}"
+
+    await query.message.edit_text(header_text, reply_markup=confirm_preset_keyboard(uid))
+    await query.answer()
+
+# ---------- Подтверждение пресета (✅ / 🔙) ----------
+
+@dp.callback_query(F.data == "confirm:back")
+async def on_confirm_back(query: CallbackQuery):
+    uid = query.from_user.id
+    info = pending_photo.get(uid)
+    if not info:
+        await query.message.edit_text(tr(uid, "fail"))
+        await query.answer()
+        return
+
+    pending_choice.pop(uid, None)
+    has_caption = bool(info.get("caption"))
+    await query.message.edit_text(
+        tr(uid, "choose_preset"),
+        reply_markup=preset_keyboard(uid, has_caption=has_caption),
+    )
+    await query.answer()
+
+
+@dp.callback_query(F.data == "confirm:ok")
+async def on_confirm_ok(query: CallbackQuery):
+    uid = query.from_user.id
+    info = pending_photo.get(uid)
+    choice = pending_choice.get(uid)
+    if not info or not choice:
+        await query.message.edit_text(tr(uid, "fail"))
+        await query.answer()
+        return
+
+    is_admin = (uid == ADMIN_USER_ID)
+    had_paid = user_credits.get(uid, 0) > 0
+
+    # Собираем prompt
+    lang = get_lang(uid)
+    if choice["type"] == "caption":
+        prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
+    else:
+        idx = int(choice["idx"] or 0)
         prompt = get_preset_prompt(lang, idx)
 
-    try:
-        await query.message.edit_text(tr(uid, "status_work"))
+    # Пишем статус обработки
+    await query.message.edit_text(tr(uid, "status_work"))
+    await query.answer()
 
+    global gen_success, gen_fail
+
+    try:
         file_info = await bot.get_file(info["file_id"])
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-
-        had_paid = user_credits.get(uid, 0) > 0
 
         result = await animate_photo_via_replicate(
             source_image_url=file_url,
             prompt=prompt,
         )
-        global gen_success, gen_fail
         if not result.get("ok"):
             gen_fail += 1
             await query.message.edit_text(tr(uid, "fail"))
@@ -796,12 +932,14 @@ async def on_preset(query: CallbackQuery):
             pass
 
         pending_photo.pop(uid, None)
+        pending_choice.pop(uid, None)
 
     except Exception as e:
         gen_fail += 1
         logger.exception("Animation error: %s", e)
         await query.message.edit_text("Error while processing. Try another photo.")
 
+# ---------- MAIN ----------
 
 def main():
     asyncio.run(dp.start_polling(bot))
