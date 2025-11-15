@@ -7,16 +7,32 @@
   "menu_support": "🆘 Support",
   "menu_share": "📤 Tell friends",
 
-  "pricing": "💫 <b>Magl’sBot Pricing</b>\n\n🆓 1 free animation — try before paying.\n\n✨ <b>Paid packages:</b>\n\n• <b>1 animation — 60 ⭐</b>\nPerfect for testing old photos.\n\n• <b>3 animations — 150 ⭐</b> ⭐ Most popular\nBest price-to-value option.\n\n• <b>5 animations — 300 ⭐</b>\nFor family archives.\n\n• <b>10 animations — 500 ⭐</b>\nGreat deal — only 50⭐ per animation.\n\n⚡ Instant payment. Credits added automatically.",
+  "pricing": "💫 <b>Magl’sBot Pricing</b>\n\n🆓 1 free animation — try before paying.\n\n✨ <b>Paid packages:</b>\n\n• <b>1 animation — 60 ⭐</b>\nPerfect for testing old photos.\n\n• <b>3 animations — 150 ⭐</b> ⭐ Most popular\nBest value.\n\n• <b>5 animations — 300 ⭐</b>\nFor family archives.\n\n• <b>10 animations — 500 ⭐</b>\nGreat deal — only 50⭐ per animation.\n\n⚡ Instant payment. Credits added automatically.",
 
   "buy_btn_1": "1 animation — 60 ⭐",
   "buy_btn_3": "3 animations — 150 ⭐ (most popular)",
   "buy_btn_5": "5 animations — 300 ⭐",
   "buy_btn_10": "10 animations — 500 ⭐",
 
-  "support_sent": "📝 Your message was sent to support!",
-  "send_support": "Please type your question:",
+  "processing": "⚙️ Processing your photo… this takes 20–60 sec ✨",
+  "ready": "✨ Done! Choose your next action:",
   "no_credits": "🔋 Not enough credits. Choose a package:",
-  "processing": "⚙️ Processing your photo… this may take 20–60 sec ✨",
-  "ready": "✨ Done! Choose your next action:"
+  "send_support": "Type your question:",
+  "support_sent": "📝 Message sent to support!",
+
+  "choose_preset": "🎨 Choose a magic preset:",
+  "btn_caption_yes": "👉 Use caption as prompt",
+  "btn_caption_no": "🔙 Back",
+
+  "preset_desc": {
+    "1": "Natural soft smile with smooth, realistic facial motion.",
+    "2": "Cinematic portrait with dramatic lighting and subtle breathing.",
+    "3": "Dreamy smooth motion with soft warm atmosphere.",
+    "4": "Expressive emotional look with natural face movement.",
+    "5": "Soft blink, gentle smile and cinematic lighting.",
+    "6": "Playful, natural wink with expressive eyes.",
+    "7": "Vintage 35mm film look with warm tones and soft texture.",
+    "8": "Dramatic lighting with strong contrast and cinematic mood.",
+    "9": "Editorial-style portrait with soft studio lighting and elegant movement."
+  }
 }
