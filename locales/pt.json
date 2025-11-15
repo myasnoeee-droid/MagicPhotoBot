@@ -5,18 +5,34 @@
   "menu_buy": "💫 Comprar gerações",
   "menu_balance": "💰 Saldo",
   "menu_support": "🆘 Suporte",
-  "menu_share": "📤 Contar aos amigos",
+  "menu_share": "📤 Compartilhar",
 
-  "pricing": "💫 <b>Preços do Magl’sBot</b>\n\n🆓 1 animação grátis — para testar.\n\n✨ <b>Pacotes:</b>\n\n• <b>1 animação — 60 ⭐</b>\nIdeal para testar fotos antigas.\n\n• <b>3 animações — 150 ⭐</b> ⭐ Mais popular\nMelhor custo-benefício.\n\n• <b>5 animações — 300 ⭐</b>\nÓtimo para álbuns de família.\n\n• <b>10 animações — 500 ⭐</b>\nSuper oferta — só 50⭐ por vídeo.\n\n⚡ Pagamento instantâneo, créditos adicionados automaticamente.",
+  "pricing": "💫 <b>Preços do Magl’sBot</b>\n\n🆓 1 animação grátis — para testar.\n\n✨ <b>Pacotes:</b>\n\n• <b>1 animação — 60 ⭐</b>\nIdeal para testar fotos antigas.\n\n• <b>3 animações — 150 ⭐</b> ⭐ Mais popular\nMelhor custo-benefício.\n\n• <b>5 animações — 300 ⭐</b>\nÓtimo para arquivos familiares.\n\n• <b>10 animações — 500 ⭐</b>\nSuper oferta — apenas 50⭐ por vídeo.\n\n⚡ Pagamento instantâneo. Créditos adicionados automaticamente.",
 
   "buy_btn_1": "1 animação — 60 ⭐",
   "buy_btn_3": "3 animações — 150 ⭐ (mais popular)",
   "buy_btn_5": "5 animações — 300 ⭐",
   "buy_btn_10": "10 animações — 500 ⭐",
 
-  "support_sent": "📝 Sua mensagem foi enviada ao suporte!",
-  "send_support": "Digite sua dúvida:",
+  "processing": "⚙️ Processando foto… pode levar 20–60 segundos ✨",
+  "ready": "✨ Pronto! Escolha a próxima ação:",
   "no_credits": "🔋 Créditos insuficientes. Escolha um pacote:",
-  "processing": "⚙️ Processando sua foto… pode levar 20–60 segundos ✨",
-  "ready": "✨ Pronto! Escolha o próximo passo:"
+  "send_support": "Digite sua dúvida:",
+  "support_sent": "📝 Mensagem enviada ao suporte!",
+
+  "choose_preset": "🎨 Escolha um preset mágico:",
+  "btn_caption_yes": "👉 Usar descrição como prompt",
+  "btn_caption_no": "🔙 Voltar",
+
+  "preset_desc": {
+    "1": "Sorriso suave natural com movimento realista.",
+    "2": "Retrato cinematográfico com iluminação dramática.",
+    "3": "Movimento suave com atmosfera quente.",
+    "4": "Expressão emocional com luz quente.",
+    "5": "Piscada suave e sorriso leve com iluminação cinematográfica.",
+    "6": "Piscadinha natural e expressiva.",
+    "7": "Estilo filme 35mm vintage.",
+    "8": "Iluminação dramática com forte contraste.",
+    "9": "Retrato editorial elegante com luz suave."
+  }
 }
