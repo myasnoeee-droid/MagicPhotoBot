@@ -1,22 +1,22 @@
 {
-  "welcome": "<b>Oi!</b> Me envie uma <b>foto</b> (e, se quiser, um prompt na legenda).\nVou transformar isso em um vídeo mágico curto.\n\nDica: retratos de frente com boa iluminação funcionam melhor ✨",
-  "pricing": "<b>Planos:</b>\n• 1 vídeo grátis por usuário\n• Pacotes: 1 / 3 / 5 / 10 vídeos por Stars",
-  "invite_only": "Este bot está disponível apenas por convite. Fale com o administrador.",
-  "free_used": "Você já usou o seu vídeo grátis. Veja /pricing ou use os botões abaixo 👇",
-  "status_work": "🎞 Criando o seu vídeo mágico... ~20–60 segundos",
-  "fail": "Não consegui animar esta foto. Tente outra, por favor.",
-  "done": "Pronto! ✨",
-  "choose_preset": "Escolha o estilo de animação:",
-  "btn_use_caption": "Usar minha legenda",
-  "btn_cancel": "Cancelar",
-  "cancelled": "Cancelado.",
-  "buy_title": "Escolha um pacote:",
- "buy_btn_1": "1 animação — 60 Stars",
-"buy_btn_3": "3 animações — 150 Stars (mais popular)",
-"buy_btn_5": "5 animações — 300 Stars",
-"buy_btn_10": "10 animações — 500 Stars",
-  "balance_title": "💰 Saldo\n• Créditos: {credits}",
-  "paid_ok": "✅ Pagamento aprovado! {credits} animações adicionadas. Novo saldo: {balance}.",
-  "lang_set": "Idioma alterado para português ✅"
-}
+  "welcome": "🪄 Envie uma foto e eu vou animá-la magicamente ✨",
+  "choose_language": "🧙‍♂️ <b>Magl’sBot te dá as boas-vindas, viajante mágico!</b>\n\n✨ Escolha seu idioma:",
+  "menu_animate": "🪄 Animar foto",
+  "menu_buy": "💫 Comprar gerações",
+  "menu_balance": "💰 Saldo",
+  "menu_support": "🆘 Suporte",
+  "menu_share": "📤 Contar aos amigos",
 
+  "pricing": "💫 <b>Preços do Magl’sBot</b>\n\n🆓 1 animação grátis — para testar.\n\n✨ <b>Pacotes:</b>\n\n• <b>1 animação — 60 ⭐</b>\nIdeal para testar fotos antigas.\n\n• <b>3 animações — 150 ⭐</b> ⭐ Mais popular\nMelhor custo-benefício.\n\n• <b>5 animações — 300 ⭐</b>\nÓtimo para álbuns de família.\n\n• <b>10 animações — 500 ⭐</b>\nSuper oferta — só 50⭐ por vídeo.\n\n⚡ Pagamento instantâneo, créditos adicionados automaticamente.",
+
+  "buy_btn_1": "1 animação — 60 ⭐",
+  "buy_btn_3": "3 animações — 150 ⭐ (mais popular)",
+  "buy_btn_5": "5 animações — 300 ⭐",
+  "buy_btn_10": "10 animações — 500 ⭐",
+
+  "support_sent": "📝 Sua mensagem foi enviada ao suporte!",
+  "send_support": "Digite sua dúvida:",
+  "no_credits": "🔋 Créditos insuficientes. Escolha um pacote:",
+  "processing": "⚙️ Processando sua foto… pode levar 20–60 segundos ✨",
+  "ready": "✨ Pronto! Escolha o próximo passo:"
+}
