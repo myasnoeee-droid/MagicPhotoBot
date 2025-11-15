@@ -3,7 +3,7 @@ import asyncio
 import logging
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Any
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -128,26 +128,26 @@ PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
     "ua": PRESET_PROMPTS_BASE,
     "en": PRESET_PROMPTS_BASE,
     "es": [
-        "warm natural smile, slight head turn right, photorealistic skin texture",        # 1
-        "cinematic close-up portrait, subtle breathing, soft studio light, 24fps",        # 2
-        "gentle flowing movement, light hair flutter, dreamy soft focus, ethereal glow",  # 3
-        "soft smile, relaxed head tilt, very expressive eyes, warm golden lighting",      # 4
-        "slow gentle eye blink, slow smile, cinematic contrast, photorealistic detail",   # 5
-        "playful subtle wink, small smile, natural head motion, beauty lighting",         # 6
-        "nostalgic vintage 35mm film look, film grain, warm tones, subtle motion",        # 7
-        "strong dramatic lighting, deep shadows, intense cinematic mood, expressive face",# 8
-        "fashion editorial portrait, soft bounce light, elegant slow head movement",      # 9
+        "warm natural smile, slight head turn right, photorealistic skin texture",
+        "cinematic close-up portrait, subtle breathing, soft studio light, 24fps",
+        "gentle flowing movement, light hair flutter, dreamy soft focus, ethereal glow",
+        "soft smile, relaxed head tilt, very expressive eyes, warm golden lighting",
+        "slow gentle eye blink, slow smile, cinematic contrast, photorealistic detail",
+        "playful subtle wink, small smile, natural head motion, beauty lighting",
+        "nostalgic vintage 35mm film look, film grain, warm tones, subtle motion",
+        "strong dramatic lighting, deep shadows, intense cinematic mood, expressive face",
+        "fashion editorial portrait, soft bounce light, elegant slow head movement"
     ],
     "pt": [
-        "soft natural smile, slight head turn, realistic skin and eyes",                  # 1
-        "cinematic portrait shot, calm breathing, soft studio light, 24fps look",         # 2
-        "smooth gentle movement, light hair motion, dreamy soft focus, glow",             # 3
-        "soft sweet smile, natural head tilt, warm expressive eyes, cozy lighting",       # 4
-        "gentle eye blink, slow friendly smile, cinematic lighting, realistic details",   # 5
-        "cute subtle wink, light smile, natural head motion, flattering light",           # 6
-        "retro 35mm film style, film grain, warm nostalgic tones, subtle motion",         # 7
-        "cinematic dramatic lighting, strong contrast, emotional portrait, deep shadows", # 8
-        "elegant editorial portrait, soft studio bounce light, slow refined movement",    # 9
+        "soft natural smile, slight head turn, realistic skin and eyes",
+        "cinematic portrait shot, calm breathing, soft studio light, 24fps look",
+        "smooth gentle movement, light hair motion, dreamy soft focus, glow",
+        "soft sweet smile, natural head tilt, warm expressive eyes, cozy lighting",
+        "gentle eye blink, slow friendly smile, cinematic lighting, realistic details",
+        "cute subtle wink, light smile, natural head motion, flattering light",
+        "retro 35mm film style, film grain, warm nostalgic tones, subtle motion",
+        "cinematic dramatic lighting, strong contrast, emotional portrait, deep shadows",
+        "elegant editorial portrait, soft studio bounce light, slow refined movement"
     ],
 }
 
@@ -209,6 +209,7 @@ PRESET_TITLES: Dict[str, list[str]] = {
 
 pending_photo: Dict[int, Dict[str, str]] = {}  # user_id -> {"file_id":..., "caption":...}
 
+
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
@@ -235,6 +236,7 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
 
 # ---------- Stars (XTR) тарифы и кредиты ----------
 
+# title, credits, amount_in_stars
 PACKS = {
     "pack_1": ("1 animation", 1, 60),
     "pack_3": ("3 animations", 3, 150),
@@ -243,34 +245,78 @@ PACKS = {
 }
 user_credits: Dict[int, int] = {}  # user_id -> credits
 
+
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для /buy и кнопки «Купить генерации».
+    Популярный пакет (3 оживления) — первым, с 🔥.
+    Каждая кнопка в отдельной строке.
+    """
     lang = get_lang(uid)
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_1"), callback_data="buy:pack_1")],
-            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_3"), callback_data="buy:pack_3")],
-            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_5"), callback_data="buy:pack_5")],
-            [InlineKeyboardButton(text=tr_lang(lang, "buy_btn_10"), callback_data="buy:pack_10")],
-        ]
+    kb = InlineKeyboardMarkup(row_width=1)
+
+    popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
+    kb.add(
+        InlineKeyboardButton(
+            text=popular_text,
+            callback_data="buy:pack_3"
+        )
     )
+    kb.add(
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_5"),
+            callback_data="buy:pack_5"
+        )
+    )
+    kb.add(
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_10"),
+            callback_data="buy:pack_10"
+        )
+    )
+    kb.add(
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_1"),
+            callback_data="buy:pack_1"
+        )
+    )
+    return kb
 
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура, которая показывается под готовым видео.
+    Тот же порядок: сначала популярный пакет, все по одной строке.
+    """
     lang = get_lang(uid)
-    t1 = "💫 " + tr_lang(lang, "buy_btn_1")
-    t3 = "💫 " + tr_lang(lang, "buy_btn_3")
-    t5 = "💫 " + tr_lang(lang, "buy_btn_5")
-    t10 = "💫 " + tr_lang(lang, "buy_btn_10")
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t1, callback_data="buy:pack_1")],
-            [
-                InlineKeyboardButton(text=t3, callback_data="buy:pack_3"),
-                InlineKeyboardButton(text=t5, callback_data="buy:pack_5"),
-            ],
-            [InlineKeyboardButton(text=t10, callback_data="buy:pack_10")],
-        ]
+    kb = InlineKeyboardMarkup(row_width=1)
+
+    popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
+    kb.add(
+        InlineKeyboardButton(
+            text=popular_text,
+            callback_data="buy:pack_3"
+        )
     )
+    kb.add(
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_5"),
+            callback_data="buy:pack_5"
+        )
+    )
+    kb.add(
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_10"),
+            callback_data="buy:pack_10"
+        )
+    )
+    kb.add(
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_1"),
+            callback_data="buy:pack_1"
+        )
+    )
+    return kb
 
 # ---------- Главное меню (ReplyKeyboard) ----------
 
@@ -355,7 +401,6 @@ def admin_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_admin_summary() -> str:
-    # пользователи с любыми платными кредитами
     paid_users = [uid for uid, c in user_credits.items() if c > 0]
     total_paid_credits = sum(user_credits.values())
     free_users_count = limiter.users_count()
@@ -475,9 +520,7 @@ async def on_admin_action(query: CallbackQuery):
         return
 
     if action == "users":
-        # показываем укороченный список пользователей
         all_ids = set(user_credits.keys())
-        # попробуем вытащить тех, кто пользовался free лимитом
         try:
             free_usage = getattr(limiter, "_usage", {})
             all_ids.update(free_usage.keys())
@@ -495,8 +538,8 @@ async def on_admin_action(query: CallbackQuery):
                 break
             lang = get_lang(u)
             paid = user_credits.get(u, 0)
-            free_used = free_usage.get(u, 0) if isinstance(free_usage, dict) else "?"
-            lines.append(f"• id={u}, lang={lang}, paid={paid}, free_used={free_used}")
+            fu = free_usage.get(u, 0) if isinstance(free_usage, dict) else "?"
+            lines.append(f"• id={u}, lang={lang}, paid={paid}, free_used={fu}")
         text = "\n".join(lines)
         await query.message.edit_text(text, reply_markup=admin_keyboard())
         await query.answer("Users list")
@@ -573,7 +616,6 @@ async def on_text(message: Message):
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
-    # кнопка "Оживить фото"
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
         await message.answer(
@@ -586,13 +628,11 @@ async def on_text(message: Message):
         )
         return
 
-    # кнопка "Купить генерации"
     if text == labels["buy"]:
         awaiting_support.pop(uid, None)
         await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
         return
 
-    # кнопка "Баланс"
     if text == labels["balance"]:
         awaiting_support.pop(uid, None)
         await message.answer(
@@ -600,7 +640,6 @@ async def on_text(message: Message):
         )
         return
 
-    # кнопка "Поддержка"
     if text == labels["support"]:
         awaiting_support[uid] = True
         msg = {
@@ -612,7 +651,6 @@ async def on_text(message: Message):
         await message.answer(msg)
         return
 
-    # кнопка "Рассказать друзьям"
     if text == labels["share"]:
         awaiting_support.pop(uid, None)
         share_texts = {
@@ -640,7 +678,6 @@ async def on_text(message: Message):
         await message.answer(share_texts.get(lang, share_texts["en"]))
         return
 
-    # если мы ждём сообщение для поддержки
     if awaiting_support.get(uid):
         dest = SUPPORT_CHAT_ID or ADMIN_USER_ID
         if dest:
@@ -665,8 +702,7 @@ async def on_text(message: Message):
             await message.answer("⚠️ Support is not configured yet. Contact bot admin.")
         awaiting_support.pop(uid, None)
         return
-
-    # иначе текст просто игнорим — фото и прочее ловят другие хэндлеры
+    # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
 
 # ---------- Фото + пресеты ----------
 
@@ -677,7 +713,6 @@ async def on_photo(message: Message):
 
     is_admin = (uid == ADMIN_USER_ID)
 
-    # Лимит бесплатных только если это не админ в test mode
     if not (TEST_MODE and is_admin):
         if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
             await message.answer(tr(uid, "free_used"))
@@ -749,7 +784,6 @@ async def on_preset(query: CallbackQuery):
             reply_markup=buy_cta_keyboard(uid),
         )
 
-        # списываем только если это не админ в test mode
         if not (TEST_MODE and is_admin):
             if had_paid and user_credits.get(uid, 0) > 0:
                 user_credits[uid] -= 1
