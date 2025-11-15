@@ -121,10 +121,10 @@ PRESET_PROMPTS_BASE = [
     "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 6 Wink
     "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 7 Vintage film
     "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 8 Dramatic lighting
-    "editorial portrait, soft bounce light, slight head movement, elegant expression",  # 9 Editorial portrait
+    "editorial portrait, soft bounce light, slight head movement, elegant expression"  # 9 Editorial portrait
 ]
 
-# Языковые вариации промптов (все на EN, но с нюансами под регион)
+# Языковые вариации промптов (все на EN, но адаптированы под регион)
 PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
     "ua": PRESET_PROMPTS_BASE,
     "en": PRESET_PROMPTS_BASE,
@@ -208,7 +208,7 @@ PRESET_TITLES: Dict[str, list[str]] = {
     ],
 }
 
-pending_photo: Dict[int, Dict[str, str]] = {}  # user_id -> {"file_id":..., "caption":...}
+pending_photo: Dict[int, Dict[str, str]] = {}   # user_id -> {"file_id":..., "caption":...}
 pending_choice: Dict[int, Dict[str, Any]] = {}  # user_id -> {"type": "preset"/"caption", "idx": int | None}
 
 
@@ -225,37 +225,37 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     }
     random_text = random_labels.get(lang, "✨ Random magic")
 
-    kb = []
+    rows: list[list[InlineKeyboardButton]] = []
 
     # Первая строка — Random magic
-    kb.append(
+    rows.append(
         [InlineKeyboardButton(text=random_text, callback_data="preset:random")]
     )
 
     # Далее — все пресеты по одному в строке
     for i in range(len(titles)):
-        kb.append(
+        rows.append(
             [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
         )
 
     # Последняя строка — использовать caption (если есть) + отмена
-    row2 = []
+    row_last: list[InlineKeyboardButton] = []
     if has_caption:
-        row2.append(
+        row_last.append(
             InlineKeyboardButton(
                 text=tr(uid, "btn_use_caption"),
                 callback_data="preset:usecap",
             )
         )
-    row2.append(
+    row_last.append(
         InlineKeyboardButton(
             text=tr(uid, "btn_cancel"),
             callback_data="preset:cancel",
         )
     )
-    kb.append(row2)
+    rows.append(row_last)
 
-    return InlineKeyboardMarkup(inline_keyboard=kb)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
@@ -272,13 +272,22 @@ def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
         "es": "🔙 Volver",
         "pt": "🔙 Voltar",
     }
-    kb = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=confirm_labels.get(lang, "✅ Start"), callback_data="confirm:ok")],
-            [InlineKeyboardButton(text=back_labels.get(lang, "🔙 Back"), callback_data="confirm:back")],
+            [
+                InlineKeyboardButton(
+                    text=confirm_labels.get(lang, "✅ Start"),
+                    callback_data="confirm:ok"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=back_labels.get(lang, "🔙 Back"),
+                    callback_data="confirm:back"
+                )
+            ],
         ]
     )
-    return kb
 
 # ---------- Stars (XTR) тарифы и кредиты ----------
 
@@ -299,34 +308,31 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     Каждая кнопка в отдельной строке.
     """
     lang = get_lang(uid)
-    kb = InlineKeyboardMarkup(row_width=1)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
-    kb.add(
+
+    buttons = [
         InlineKeyboardButton(
             text=popular_text,
-            callback_data="buy:pack_3"
-        )
-    )
-    kb.add(
+            callback_data="buy:pack_3",
+        ),
         InlineKeyboardButton(
             text=tr_lang(lang, "buy_btn_5"),
-            callback_data="buy:pack_5"
-        )
-    )
-    kb.add(
+            callback_data="buy:pack_5",
+        ),
         InlineKeyboardButton(
             text=tr_lang(lang, "buy_btn_10"),
-            callback_data="buy:pack_10"
-        )
-    )
-    kb.add(
+            callback_data="buy:pack_10",
+        ),
         InlineKeyboardButton(
             text=tr_lang(lang, "buy_btn_1"),
-            callback_data="buy:pack_1"
-        )
+            callback_data="buy:pack_1",
+        ),
+    ]
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[b] for b in buttons]  # каждая кнопка в своей строке
     )
-    return kb
 
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
@@ -335,34 +341,31 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     Тот же порядок: сначала популярный пакет, все по одной строке.
     """
     lang = get_lang(uid)
-    kb = InlineKeyboardMarkup(row_width=1)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
-    kb.add(
+
+    buttons = [
         InlineKeyboardButton(
             text=popular_text,
-            callback_data="buy:pack_3"
-        )
-    )
-    kb.add(
+            callback_data="buy:pack_3",
+        ),
         InlineKeyboardButton(
             text="💫 " + tr_lang(lang, "buy_btn_5"),
-            callback_data="buy:pack_5"
-        )
-    )
-    kb.add(
+            callback_data="buy:pack_5",
+        ),
         InlineKeyboardButton(
             text="💫 " + tr_lang(lang, "buy_btn_10"),
-            callback_data="buy:pack_10"
-        )
-    )
-    kb.add(
+            callback_data="buy:pack_10",
+        ),
         InlineKeyboardButton(
             text="💫 " + tr_lang(lang, "buy_btn_1"),
-            callback_data="buy:pack_1"
-        )
+            callback_data="buy:pack_1",
+        ),
+    ]
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[b] for b in buttons]
     )
-    return kb
 
 # ---------- Главное меню (ReplyKeyboard) ----------
 
@@ -385,14 +388,14 @@ MENU_BUTTONS = {
         "animate": "🪄 Animar foto",
         "buy": "💫 Comprar generaciones",
         "support": "🆘 Soporte",
-        "share": "📤 Contar a amigos",
+        "share": "📤 Compartir",
         "balance": "💰 Balance",
     },
     "pt": {
         "animate": "🪄 Animar foto",
         "buy": "💫 Comprar gerações",
         "support": "🆘 Suporte",
-        "share": "📤 Contar aos amigos",
+        "share": "📤 Compartilhar",
         "balance": "💰 Saldo",
     },
 }
@@ -483,9 +486,8 @@ async def on_start(message: Message):
     uid = message.from_user.id if message.from_user else 0
 
     if uid not in user_lang:
-        text = (
-            "🧙‍♂️ <b>Magl’sBot вітає тебе, мандрівнику-магу!</b>\n\n"
-            "✨ Обери мову чарівної книги:"
+        text = tr_lang("ua", "choose_language") or (
+            "🧙‍♂️ <b>Magl’sBot вітає тебе, мандрівнику-магу!</b>\n\n✨ Обери мову чарівної книги:"
         )
         await message.answer(text, reply_markup=lang_choice_keyboard())
         return
@@ -664,14 +666,13 @@ async def on_text(message: Message):
 
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
-        await message.answer(
-            {
-                "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
-                "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
-                "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
-                "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
-            }.get(lang, "🪄 Send me a photo and I’ll animate it.")
-        )
+        prompt_texts = {
+            "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
+            "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
+            "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
+            "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
+        }
+        await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
         return
 
     if text == labels["buy"]:
@@ -689,10 +690,10 @@ async def on_text(message: Message):
     if text == labels["support"]:
         awaiting_support[uid] = True
         msg = {
-            "ua": "🆘 Напиши, будь ласка, своє запитання або проблему одним повідомленням — я передам це живому магу підтримки.",
+            "ua": "🆘 Напишіть, будь ласка, своє запитання або проблему одним повідомленням — я передам це живому магу підтримки.",
             "en": "🆘 Please write your question or issue in one message — I’ll send it to the human support wizard.",
             "es": "🆘 Escribe tu pregunta o problema en un solo mensaje — lo enviaré al mago de soporte humano.",
-            "pt": "🆘 Escreva sua pergunta ou problema em uma única mensagem — eu vou enviar para o mago humano de suporte.",
+            "pt": "🆘 Escreva sua dúvida ou problema em uma única mensagem — eu vou enviar para o mago humano de suporte.",
         }.get(lang, "🆘 Please write your question in one message — I’ll send it to human support.")
         await message.answer(msg)
         return
@@ -734,12 +735,7 @@ async def on_text(message: Message):
                     chat_id=dest,
                     text=f"{header}\n\n{text}"
                 )
-                confirm = {
-                    "ua": "✅ Дякую! Я передав твоє повідомлення магу підтримки. Він відповість, щойно зможе.",
-                    "en": "✅ Thanks! I’ve sent your message to support. They will reply as soon as possible.",
-                    "es": "✅ ¡Gracias! He enviado tu mensaje al soporte. Te responderán lo antes posible.",
-                    "pt": "✅ Obrigado! Eu enviei sua mensagem para o suporte. Eles vão responder assim que possível.",
-                }.get(lang, "✅ Thanks! I’ve sent your message to support.")
+                confirm = tr(uid, "support_sent")
                 await message.answer(confirm)
             except Exception as e:
                 logger.exception("Failed to send support message: %s", e)
@@ -784,14 +780,15 @@ async def on_preset(query: CallbackQuery):
     info = pending_photo.get(uid)
 
     if not info:
-        await query.message.edit_text(tr(uid, "fail"))
+        await query.message.edit_text(tr(uid, "done"))
+        await query.answer()
         return
 
     # Отмена
     if data == "cancel":
         pending_photo.pop(uid, None)
         pending_choice.pop(uid, None)
-        await query.message.edit_text(tr(uid, "cancelled"))
+        await query.message.edit_text(tr(uid, "btn_cancel"))
         await query.answer()
         return
 
@@ -820,7 +817,6 @@ async def on_preset(query: CallbackQuery):
 
     # Random magic
     if data == "random":
-        # случайный индекс от 0 до 8 (всего 9 пресетов)
         idx = random.randint(0, len(PRESET_PROMPTS_BASE) - 1)
     else:
         idx = int(data) - 1
@@ -854,7 +850,7 @@ async def on_confirm_back(query: CallbackQuery):
     uid = query.from_user.id
     info = pending_photo.get(uid)
     if not info:
-        await query.message.edit_text(tr(uid, "fail"))
+        await query.message.edit_text(tr(uid, "done"))
         await query.answer()
         return
 
@@ -873,7 +869,7 @@ async def on_confirm_ok(query: CallbackQuery):
     info = pending_photo.get(uid)
     choice = pending_choice.get(uid)
     if not info or not choice:
-        await query.message.edit_text(tr(uid, "fail"))
+        await query.message.edit_text(tr(uid, "done"))
         await query.answer()
         return
 
@@ -888,7 +884,6 @@ async def on_confirm_ok(query: CallbackQuery):
         idx = int(choice["idx"] or 0)
         prompt = get_preset_prompt(lang, idx)
 
-    # Пишем статус обработки
     await query.message.edit_text(tr(uid, "status_work"))
     await query.answer()
 
@@ -904,7 +899,7 @@ async def on_confirm_ok(query: CallbackQuery):
         )
         if not result.get("ok"):
             gen_fail += 1
-            await query.message.edit_text(tr(uid, "fail"))
+            await query.message.edit_text(tr(uid, "done"))
             return
 
         gen_success += 1
