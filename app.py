@@ -113,15 +113,15 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
 
 # Базовые EN-промпты (fallback для всех)
 PRESET_PROMPTS_BASE = [
-    "natural smile, slight head turn right, photorealistic",                     # 1 Natural smile
-    "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 2 Cinematic look
-    "gentle movement, hair flutter, soft focus, ethereal glow",                 # 3 Dreamy motion
-    "smile softly, natural head tilt, expressive eyes, warm tone lighting",     # 4 Expressive vibe
-    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 5 Blink & glow
-    "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 6 Wink
-    "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 7 Vintage film
-    "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 8 Dramatic lighting
-    "editorial portrait, soft bounce light, slight head movement, elegant expression"  # 9 Editorial portrait
+    "natural smile, slight head turn right, photorealistic",                     # 0 Natural smile
+    "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 1 Cinematic look
+    "gentle movement, hair flutter, soft focus, ethereal glow",                 # 2 Dreamy motion
+    "smile softly, natural head tilt, expressive eyes, warm tone lighting",     # 3 Expressive vibe
+    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow (наш рекомендованный)
+    "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 5 Wink
+    "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 6 Vintage film
+    "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 7 Dramatic lighting
+    "editorial portrait, soft bounce light, slight head movement, elegant expression"  # 8 Editorial portrait
 ]
 
 # Языковые вариации промптов (все на EN, но адаптированы под регион)
@@ -167,7 +167,7 @@ PRESET_TITLES: Dict[str, list[str]] = {
         "🎬 Cinematic look",
         "🕊️ Dreamy motion",
         "🔥 Expressive vibe",
-        "💡 Blink & glow",
+        "💡 Blink & Glow ⭐ recommended for old photos",
         "😉 Wink",
         "🎞 Vintage film",
         "💥 Dramatic lighting",
@@ -178,7 +178,7 @@ PRESET_TITLES: Dict[str, list[str]] = {
         "🎬 Cinematic look",
         "🕊️ Dreamy motion",
         "🔥 Expressive vibe",
-        "💡 Blink & glow",
+        "💡 Blink & Glow ⭐ рекомендовано для старих фото",
         "😉 Wink",
         "🎞 Vintage film",
         "💥 Dramatic lighting",
@@ -189,7 +189,7 @@ PRESET_TITLES: Dict[str, list[str]] = {
         "🎬 Look cinematográfico",
         "🕊️ Movimiento suave",
         "🔥 Vibras expresivas",
-        "💡 Parpadeo suave & brillo",
+        "💡 Parpadeo suave & brillo ⭐ ideal para fotos antiguas",
         "😉 Guiño sutil",
         "🎞 Estilo película vintage",
         "💥 Iluminación dramática",
@@ -200,7 +200,7 @@ PRESET_TITLES: Dict[str, list[str]] = {
         "🎬 Visual cinematográfico",
         "🕊️ Movimento suave",
         "🔥 Vibração expressiva",
-        "💡 Piscar suave & brilho",
+        "💡 Piscar suave & brilho ⭐ ideal para fotos antigas",
         "😉 Piscadinha sutil",
         "🎞 Filme vintage 35mm",
         "💥 Iluminação dramática",
@@ -208,7 +208,8 @@ PRESET_TITLES: Dict[str, list[str]] = {
     ],
 }
 
-pending_photo: Dict[int, Dict[str, str]] = {}   # user_id -> {"file_id":..., "caption":...}
+# pending_* — состояние диалога
+pending_photo: Dict[int, Dict[str, Any]] = {}   # user_id -> {"file_id":..., "caption":..., "is_old_like": bool}
 pending_choice: Dict[int, Dict[str, Any]] = {}  # user_id -> {"type": "preset"/"caption", "idx": int | None}
 
 
@@ -746,7 +747,7 @@ async def on_text(message: Message):
         return
     # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
 
-# ---------- Фото + пресеты ----------
+# ---------- Фото + пресеты (с авто-рекомендацией Blink & Glow) ----------
 
 @dp.message(F.photo)
 async def on_photo(message: Message):
@@ -755,18 +756,67 @@ async def on_photo(message: Message):
 
     is_admin = (uid == ADMIN_USER_ID)
 
+    # Лимиты
     if not (TEST_MODE and is_admin):
         if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
             await message.answer(tr(uid, "free_used"))
             return
 
     photo = message.photo[-1]
+
+    # Heuristic: старое/маленькое фото (часто скан или архив)
+    width = photo.width
+    height = photo.height
+    file_size = getattr(photo, "file_size", 0) or 0
+
+    area = width * height
+    is_small_res = area < 400_000 or max(width, height) < 700  # например <= ~800x500
+    is_small_size = file_size and file_size < 200_000          # < 200kb
+
+    is_old_like = is_small_res or is_small_size
+
     pending_photo[uid] = {
         "file_id": photo.file_id,
         "caption": (message.caption or "").strip(),
+        "is_old_like": is_old_like,
     }
     pending_choice.pop(uid, None)
 
+    lang = get_lang(uid)
+
+    # Если фото «похоже на старое» — сразу предлагаем Blink & Glow (preset index 4)
+    if is_old_like:
+        idx = 4  # 0-based => 5-й пресет Blink & Glow
+        pending_choice[uid] = {"type": "preset", "idx": idx}
+
+        titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
+        title_txt = titles[idx] if 0 <= idx < len(titles) else "Blink & Glow"
+
+        desc_map = LOCALES.get(lang, {}).get("preset_desc", {})
+        desc = ""
+        if isinstance(desc_map, dict):
+            desc = desc_map.get(str(idx + 1), "")
+
+        confirm_texts = {
+            "ua": "✨ Це фото виглядає як старе/архівне.\nРекомендуємо пресет нижче — запустити з ним анімацію?",
+            "en": "✨ This photo looks like an old/archival one.\nWe recommend the preset below — start animation with it?",
+            "es": "✨ Esta foto parece antigua/de archivo.\nTe recomendamos este preset — ¿iniciar la animación con él?",
+            "pt": "✨ Esta foto parece antiga/de arquivo.\nRecomendamos este preset — iniciar animação com ele?",
+        }
+        confirm_line = confirm_texts.get(lang, confirm_texts["en"])
+
+        if desc:
+            header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
+        else:
+            header_text = f"🎨 {title_txt}\n\n{confirm_line}"
+
+        await message.answer(
+            header_text,
+            reply_markup=confirm_preset_keyboard(uid)
+        )
+        return
+
+    # Обычный сценарий — показать меню пресетов
     await message.answer(
         tr(uid, "choose_preset"),
         reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"])),
