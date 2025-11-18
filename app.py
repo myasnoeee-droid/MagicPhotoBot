@@ -117,7 +117,7 @@ PRESET_PROMPTS_BASE = [
     "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 1 Cinematic look
     "gentle movement, hair flutter, soft focus, ethereal glow",                 # 2 Dreamy motion
     "smile softly, natural head tilt, expressive eyes, warm tone lighting",     # 3 Expressive vibe
-    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow (наш рекомендованный)
+    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow (рекомендованный)
     "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 5 Wink
     "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 6 Vintage film
     "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 7 Dramatic lighting
@@ -602,8 +602,6 @@ async def on_start(message: Message):
 
     awaiting_support.pop(uid, None)
     await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
-    lang = get_lang(uid)
-    await message.answer(referral_info_text(lang))
 
 
 @dp.callback_query(F.data.startswith("lang:"))
@@ -620,8 +618,6 @@ async def on_lang_set(query: CallbackQuery):
         tr(uid, "welcome"),
         reply_markup=main_menu_keyboard(uid)
     )
-    lang = get_lang(uid)
-    await query.message.answer(referral_info_text(lang))
     await query.answer()
 
 
@@ -1107,6 +1103,13 @@ async def on_confirm_ok(query: CallbackQuery):
             video=FSInputFile(tmp_path),
             caption=tr(uid, "done"),
             reply_markup=buy_cta_keyboard(uid),
+        )
+
+        # 🔥 После магии — рассказываем про реферальную программу
+        ref_text = referral_info_text(lang)
+        await bot.send_message(
+            chat_id=query.message.chat.id,
+            text=ref_text
         )
 
         if not (TEST_MODE and is_admin):
