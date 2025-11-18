@@ -301,6 +301,11 @@ PACKS = {
 }
 user_credits: Dict[int, int] = {}  # user_id -> credits
 
+# ----- Рефералка -----
+ref_inviter: Dict[int, int] = {}         # кто кого пригласил: invited_id -> inviter_id
+ref_count: Dict[int, int] = {}           # сколько людей привёл каждый юзер: inviter_id -> count
+ref_stars_balance: Dict[int, int] = {}   # накопленные реферальные Stars (для конвертации в кредиты)
+
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     """
@@ -339,13 +344,13 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     """
     Клавиатура, которая показывается под готовым видео.
-    Тот же порядок: сначала популярный пакет, все по одной строке.
+    Пакеты + кнопка «Поделиться ботом» (с реф-ссылкой).
     """
     lang = get_lang(uid)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
-    buttons = [
+    buy_buttons = [
         InlineKeyboardButton(
             text=popular_text,
             callback_data="buy:pack_3",
@@ -364,9 +369,22 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
         ),
     ]
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[b] for b in buttons]
+    share_labels = {
+        "ua": "📤 Поділитися ботом",
+        "en": "📤 Share this bot",
+        "es": "📤 Compartir el bot",
+        "pt": "📤 Compartilhar o bot",
+    }
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    share_button = InlineKeyboardButton(
+        text=share_labels.get(lang, share_labels["en"]),
+        url=ref_link,
     )
+
+    rows = [[b] for b in buy_buttons]
+    rows.append([share_button])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 # ---------- Главное меню (ReplyKeyboard) ----------
 
@@ -474,6 +492,83 @@ def build_admin_summary() -> str:
         lines.append(f"• {code} ({title}) — <b>{cnt}</b> times")
     return "\n".join(lines)
 
+# ---------- РЕФЕРАЛЬНАЯ МАГИЯ ----------
+
+def referral_info_text(lang: str) -> str:
+    ua = (
+        "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
+        "1) Запроси 3 друзів — отримай 1 <b>безкоштовне оживлення</b>.\n"
+        "2) Отримуй <b>5% Stars</b> від усіх поповнень друзів.\n\n"
+        "Поділись ботом через кнопку «Розповісти друзям» в меню — і нехай магія розлітається світом 🪄"
+    )
+    en = (
+        "✨ <b>Magl’sBot referral magic</b>\n\n"
+        "1) Invite 3 friends — get 1 <b>free animation</b>.\n"
+        "2) Earn <b>5% Stars</b> from all your friends’ top-ups.\n\n"
+        "Share the bot via “Tell friends” button in the menu and let the magic spread 🪄"
+    )
+    es = (
+        "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
+        "1) Invita a 3 amigos — recibe 1 <b>animación gratis</b>.\n"
+        "2) Gana <b>5% en Stars</b> de todas las recargas de tus amigos.\n\n"
+        "Comparte el bot con el botón “Compartir” en el menú y deja que la magia se expanda 🪄"
+    )
+    pt = (
+        "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
+        "1) Convide 3 amigos — ganhe 1 <b>animação grátis</b>.\n"
+        "2) Ganhe <b>5% em Stars</b> de todas as recargas dos seus amigos.\n\n"
+        "Compartilhe o bot pelo botão “Compartilhar” no menu e deixe a magia se espalhar 🪄"
+    )
+    mapping = {
+        "ua": ua,
+        "en": en,
+        "es": es,
+        "pt": pt,
+    }
+    return mapping.get(lang, en)
+
+
+async def register_referral(new_user_id: int, inviter_id: int):
+    """
+    Регистрируем реферала:
+    - не даём приглашать самого себя
+    - не пересчитываем, если уже был привязан
+    - за каждые 3 приглашённых → +1 бесплатное оживление (credit)
+    """
+    if new_user_id == inviter_id:
+        return
+    if new_user_id in ref_inviter:
+        return
+
+    ref_inviter[new_user_id] = inviter_id
+    ref_count[inviter_id] = ref_count.get(inviter_id, 0) + 1
+    count = ref_count[inviter_id]
+
+    earned_free = 1 if (count % 3 == 0) else 0
+    if earned_free:
+        user_credits[inviter_id] = user_credits.get(inviter_id, 0) + earned_free
+
+    try:
+        # уведомление пригласившему
+        lang = get_lang(inviter_id)
+        msg_lines = [
+            "🧙‍♂️ Новий маг приєднався за твоїм посиланням!",
+            f"Ти вже запросив: <b>{count}</b> друзів.",
+        ]
+        if earned_free:
+            msg_lines.append(
+                f"За кожні 3 запрошених — +1 безкоштовне оживлення.\n"
+                f"🎁 Ти щойно отримав +1! Зараз у тебе {user_credits[inviter_id]} кредитів."
+            )
+        else:
+            left = 3 - (count % 3)
+            msg_lines.append(
+                f"Ще <b>{left}</b> друзів — і ти отримаєш +1 безкоштовне оживлення ✨"
+            )
+        await bot.send_message(inviter_id, "\n".join(msg_lines))
+    except Exception as e:
+        logger.warning("Failed to notify inviter: %s", e)
+
 # ---------- Handlers ----------
 
 @dp.message(CommandStart())
@@ -486,6 +581,18 @@ async def on_start(message: Message):
 
     uid = message.from_user.id if message.from_user else 0
 
+    # --- разбор реферального payload ---
+    # /start ref_12345
+    parts = (message.text or "").split(maxsplit=1)
+    payload = parts[1] if len(parts) > 1 else ""
+    if payload.startswith("ref_"):
+        try:
+            inviter_id = int(payload[4:])
+            await register_referral(uid, inviter_id)
+        except ValueError:
+            pass
+    # --- конец блока рефералки ---
+
     if uid not in user_lang:
         text = tr_lang("ua", "choose_language") or (
             "🧙‍♂️ <b>Magl’sBot вітає тебе, мандрівнику-магу!</b>\n\n✨ Обери мову чарівної книги:"
@@ -495,6 +602,8 @@ async def on_start(message: Message):
 
     awaiting_support.pop(uid, None)
     await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
+    lang = get_lang(uid)
+    await message.answer(referral_info_text(lang))
 
 
 @dp.callback_query(F.data.startswith("lang:"))
@@ -511,6 +620,8 @@ async def on_lang_set(query: CallbackQuery):
         tr(uid, "welcome"),
         reply_markup=main_menu_keyboard(uid)
     )
+    lang = get_lang(uid)
+    await query.message.answer(referral_info_text(lang))
     await query.answer()
 
 
@@ -649,6 +760,38 @@ async def on_payment(message: Message):
     if payload in pack_stats:
         pack_stats[payload] += 1
 
+    # 5% Stars реферал-бонус пригласившему
+    inviter_id = ref_inviter.get(uid)
+    if inviter_id:
+        total_stars = sp.total_amount  # сколько Stars списалось
+        bonus_stars = int(total_stars * 0.05)
+        if bonus_stars > 0:
+            ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
+            gained_credits = 0
+            # конвертируем каждые 60 Stars в 1 кредит
+            while ref_stars_balance[inviter_id] >= 60:
+                ref_stars_balance[inviter_id] -= 60
+                user_credits[inviter_id] = user_credits.get(inviter_id, 0) + 1
+                gained_credits += 1
+            try:
+                text_lines = [
+                    "💫 Твій друг поповнив баланс у Magl’sBot!",
+                    f"Ти отримав <b>{bonus_stars}</b> Stars (5% від його поповнення).",
+                ]
+                if gained_credits > 0:
+                    text_lines.append(
+                        f"Це перетворено на +{gained_credits} додаткових оживлень.\n"
+                        f"Зараз у тебе: {user_credits[inviter_id]} кредитів."
+                    )
+                else:
+                    text_lines.append(
+                        "Ці Stars збережені на реферальному балансі. "
+                        "Ще трохи — і вони перетворяться на нове безкоштовне оживлення ✨"
+                    )
+                await bot.send_message(inviter_id, "\n".join(text_lines))
+            except Exception as e:
+                logger.warning("Failed to notify inviter about stars bonus: %s", e)
+
     await message.answer(
         tr(uid, "paid_ok").format(
             credits=credits,
@@ -656,7 +799,7 @@ async def on_payment(message: Message):
         )
     )
 
-# ---------- Главное меню: текстовые кнопки + поддержка ----------
+# ---------- Главное меню: текстовые кнопки + поддержка + share ----------
 
 @dp.message(F.text)
 async def on_text(message: Message):
@@ -701,26 +844,27 @@ async def on_text(message: Message):
 
     if text == labels["share"]:
         awaiting_support.pop(uid, None)
+        ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
         share_texts = {
             "ua": (
                 "📤 Поділись ботом з друзями:\n"
                 "Оживляємо фото в стилі Гаррі Поттера 🎬🪄\n"
-                "https://t.me/LIvePotterPhotoBot"
+                f"{ref_link}"
             ),
             "en": (
                 "📤 Share this bot with friends:\n"
-                "We animate photos like in Harry Potter portraits 🎬🪄\n"
-                "https://t.me/LIvePotterPhotoBot"
+                "We animate photos like Harry Potter portraits 🎬🪄\n"
+                f"{ref_link}"
             ),
             "es": (
                 "📤 Comparte este bot con tus amigos:\n"
                 "Animamos fotos como los retratos de Harry Potter 🎬🪄\n"
-                "https://t.me/LIvePotterPhotoBot"
+                f"{ref_link}"
             ),
             "pt": (
                 "📤 Compartilhe este bot com seus amigos:\n"
                 "Animamos fotos como nos retratos de Harry Potter 🎬🪄\n"
-                "https://t.me/LIvePotterPhotoBot"
+                f"{ref_link}"
             ),
         }
         await message.answer(share_texts.get(lang, share_texts["en"]))
