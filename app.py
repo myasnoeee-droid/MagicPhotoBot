@@ -42,8 +42,11 @@ ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",")
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
 
-# Заставка — оживлённое видео Гарри Поттера (file_id из Telegram / .env)
-INTRO_VIDEO_FILE_ID = os.getenv("INTRO_VIDEO_FILE_ID", "")
+# Заставка — оживлённое видео Гарри Поттера
+INTRO_VIDEO_FILE_ID = os.getenv(
+    "INTRO_VIDEO_FILE_ID",
+    "BAACAgIAAxkBAAICuWkgf1x1yIEgxE8FQoImZ5vuoxbOAALGiwACIA4JSfhC7_NPZQrDNgQ"
+)
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -120,7 +123,7 @@ PRESET_PROMPTS_BASE = [
     "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 1 Cinematic look
     "gentle movement, hair flutter, soft focus, ethereal glow",                 # 2 Dreamy motion
     "smile softly, natural head tilt, expressive eyes, warm tone lighting",     # 3 Expressive vibe
-    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow (рекомендованный)
+    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow
     "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 5 Wink
     "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 6 Vintage film
     "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 7 Dramatic lighting
@@ -220,7 +223,6 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
 
-    # Лейбл для Random magic
     random_labels = {
         "ua": "✨ Random magic",
         "en": "✨ Random magic",
@@ -231,18 +233,15 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
 
     rows: list[list[InlineKeyboardButton]] = []
 
-    # Первая строка — Random magic
     rows.append(
         [InlineKeyboardButton(text=random_text, callback_data="preset:random")]
     )
 
-    # Далее — все пресеты по одному в строке
     for i in range(len(titles)):
         rows.append(
             [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
         )
 
-    # Последняя строка — использовать caption (если есть) + отмена
     row_last: list[InlineKeyboardButton] = []
     if has_caption:
         row_last.append(
@@ -295,7 +294,6 @@ def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 # ---------- Stars (XTR) тарифы и кредиты ----------
 
-# title, credits, amount_in_stars
 PACKS = {
     "pack_1": ("1 animation", 1, 60),
     "pack_3": ("3 animations", 3, 150),
@@ -305,17 +303,12 @@ PACKS = {
 user_credits: Dict[int, int] = {}  # user_id -> credits
 
 # ----- Рефералка -----
-ref_inviter: Dict[int, int] = {}         # кто кого пригласил: invited_id -> inviter_id
-ref_count: Dict[int, int] = {}           # сколько людей привёл каждый юзер: inviter_id -> count
-ref_stars_balance: Dict[int, int] = {}   # накопленные реферальные Stars (для конвертации в кредиты)
+ref_inviter: Dict[int, int] = {}         # invited_id -> inviter_id
+ref_count: Dict[int, int] = {}           # inviter_id -> count
+ref_stars_balance: Dict[int, int] = {}   # inviter_id -> accumulated Stars
 
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура для /buy и кнопки «Купить генерации».
-    Популярный пакет (3 оживления) — первым, с 🔥.
-    Каждая кнопка в отдельной строке.
-    """
     lang = get_lang(uid)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
@@ -340,15 +333,11 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     ]
 
     return InlineKeyboardMarkup(
-        inline_keyboard=[[b] for b in buttons]  # каждая кнопка в своей строке
+        inline_keyboard=[[b] for b in buttons]
     )
 
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура, которая показывается под готовым видео.
-    Пакеты + кнопка «Поделиться ботом» (с реф-ссылкой).
-    """
     lang = get_lang(uid)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
@@ -452,7 +441,7 @@ awaiting_support: Dict[int, bool] = {}  # user_id -> waiting for support message
 
 # ---------- АДМИНСКИЕ СЧЁТЧИКИ И TEST MODE ----------
 
-TEST_MODE = False  # если True — для ADMIN_USER_ID анимации не списывают кредиты/фри лимиты
+TEST_MODE = False
 pack_stats: Dict[str, int] = {key: 0 for key in PACKS.keys()}
 gen_success: int = 0
 gen_fail: int = 0
@@ -532,12 +521,6 @@ def referral_info_text(lang: str) -> str:
 
 
 async def register_referral(new_user_id: int, inviter_id: int):
-    """
-    Регистрируем реферала:
-    - не даём приглашать самого себя
-    - не пересчитываем, если уже был привязан
-    - за каждые 3 приглашённых → +1 бесплатное оживление (credit)
-    """
     if new_user_id == inviter_id:
         return
     if new_user_id in ref_inviter:
@@ -552,7 +535,6 @@ async def register_referral(new_user_id: int, inviter_id: int):
         user_credits[inviter_id] = user_credits.get(inviter_id, 0) + earned_free
 
     try:
-        # уведомление пригласившему
         lang = get_lang(inviter_id)
         msg_lines = [
             "🧙‍♂️ Новий маг приєднався за твоїм посиланням!",
@@ -585,7 +567,6 @@ async def on_start(message: Message):
     uid = message.from_user.id if message.from_user else 0
 
     # --- разбор реферального payload ---
-    # /start ref_12345
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1] if len(parts) > 1 else ""
     if payload.startswith("ref_"):
@@ -596,7 +577,29 @@ async def on_start(message: Message):
             pass
     # --- конец блока рефералки ---
 
-    # 🎬 Заставка с оживлённым Гарри Поттером
+    # Если язык ещё не выбран — отправляем видео + приветствие + кнопки языков
+    if uid not in user_lang:
+        caption = (
+            "Magl’sBot вітає тебе, мандрівнику-магу!\n\n"
+            "✨ Обери мову чарівної книги:"
+        )
+
+        if INTRO_VIDEO_FILE_ID:
+            try:
+                await message.answer_video(
+                    video=INTRO_VIDEO_FILE_ID,
+                    caption=caption,
+                    supports_streaming=True,
+                    reply_markup=lang_choice_keyboard(),
+                )
+                return
+            except Exception as e:
+                logger.warning("Failed to send intro video with caption: %s", e)
+
+        await message.answer(caption, reply_markup=lang_choice_keyboard())
+        return
+
+    # Если язык уже выбран — опционально показываем видео и сразу главное меню
     if INTRO_VIDEO_FILE_ID:
         try:
             await message.answer_video(
@@ -604,14 +607,7 @@ async def on_start(message: Message):
                 supports_streaming=True
             )
         except Exception as e:
-            logger.warning("Failed to send intro video: %s", e)
-
-    if uid not in user_lang:
-        text = tr_lang("ua", "choose_language") or (
-            "🧙‍♂️ <b>Magl’sBot вітає тебе, мандрівнику-магу!</b>\n\n✨ Обери мову чарівної книги:"
-        )
-        await message.answer(text, reply_markup=lang_choice_keyboard())
-        return
+            logger.warning("Failed to send intro video (known lang): %s", e)
 
     awaiting_support.pop(uid, None)
     await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
@@ -769,15 +765,13 @@ async def on_payment(message: Message):
     if payload in pack_stats:
         pack_stats[payload] += 1
 
-    # 5% Stars реферал-бонус пригласившему
     inviter_id = ref_inviter.get(uid)
     if inviter_id:
-        total_stars = sp.total_amount  # сколько Stars списалось
+        total_stars = sp.total_amount
         bonus_stars = int(total_stars * 0.05)
         if bonus_stars > 0:
             ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
             gained_credits = 0
-            # конвертируем каждые 60 Stars в 1 кредит
             while ref_stars_balance[inviter_id] >= 60:
                 ref_stars_balance[inviter_id] -= 60
                 user_credits[inviter_id] = user_credits.get(inviter_id, 0) + 1
@@ -909,7 +903,6 @@ async def on_photo(message: Message):
 
     is_admin = (uid == ADMIN_USER_ID)
 
-    # Лимиты
     if not (TEST_MODE and is_admin):
         if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
             await message.answer(tr(uid, "free_used"))
@@ -917,14 +910,13 @@ async def on_photo(message: Message):
 
     photo = message.photo[-1]
 
-    # Heuristic: старое/маленькое фото (часто скан или архив)
     width = photo.width
     height = photo.height
     file_size = getattr(photo, "file_size", 0) or 0
 
     area = width * height
-    is_small_res = area < 400_000 or max(width, height) < 700  # например <= ~800x500
-    is_small_size = file_size and file_size < 200_000          # < 200kb
+    is_small_res = area < 400_000 or max(width, height) < 700
+    is_small_size = file_size and file_size < 200_000
 
     is_old_like = is_small_res or is_small_size
 
@@ -937,9 +929,8 @@ async def on_photo(message: Message):
 
     lang = get_lang(uid)
 
-    # Если фото «похоже на старое» — сразу предлагаем Blink & Glow (preset index 4)
     if is_old_like:
-        idx = 4  # 0-based => 5-й пресет Blink & Glow
+        idx = 4  # Blink & Glow
         pending_choice[uid] = {"type": "preset", "idx": idx}
 
         titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
@@ -969,7 +960,6 @@ async def on_photo(message: Message):
         )
         return
 
-    # Обычный сценарий — показать меню пресетов
     await message.answer(
         tr(uid, "choose_preset"),
         reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"])),
@@ -987,7 +977,6 @@ async def on_preset(query: CallbackQuery):
         await query.answer()
         return
 
-    # Отмена
     if data == "cancel":
         pending_photo.pop(uid, None)
         pending_choice.pop(uid, None)
@@ -997,7 +986,6 @@ async def on_preset(query: CallbackQuery):
 
     lang = get_lang(uid)
 
-    # Текст вопроса-подтверждения
     confirm_texts = {
         "ua": "✅ Запустити анімацію з цим пресетом?",
         "en": "✅ Start animation with this preset?",
@@ -1006,7 +994,6 @@ async def on_preset(query: CallbackQuery):
     }
     confirm_line = confirm_texts.get(lang, confirm_texts["en"])
 
-    # Выбор по caption
     if data == "usecap":
         pending_choice[uid] = {"type": "caption", "idx": None}
         desc = info["caption"] or ""
@@ -1018,7 +1005,6 @@ async def on_preset(query: CallbackQuery):
         await query.answer()
         return
 
-    # Random magic
     if data == "random":
         idx = random.randint(0, len(PRESET_PROMPTS_BASE) - 1)
     else:
@@ -1032,7 +1018,6 @@ async def on_preset(query: CallbackQuery):
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
     title_txt = titles[idx] if 0 <= idx < len(titles) else "Preset"
 
-    # Описание из локали
     desc_map = LOCALES.get(lang, {}).get("preset_desc", {})
     desc = ""
     if isinstance(desc_map, dict):
@@ -1079,7 +1064,6 @@ async def on_confirm_ok(query: CallbackQuery):
     is_admin = (uid == ADMIN_USER_ID)
     had_paid = user_credits.get(uid, 0) > 0
 
-    # Собираем prompt
     lang = get_lang(uid)
     if choice["type"] == "caption":
         prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
@@ -1118,7 +1102,6 @@ async def on_confirm_ok(query: CallbackQuery):
             reply_markup=buy_cta_keyboard(uid),
         )
 
-        # 🔥 После магии — рассказываем про реферальную программу
         ref_text = referral_info_text(lang)
         await bot.send_message(
             chat_id=query.message.chat.id,
