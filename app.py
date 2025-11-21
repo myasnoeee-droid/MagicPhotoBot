@@ -886,14 +886,6 @@ async def on_text(message: Message):
         awaiting_support.pop(uid, None)
         return
     # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
-# ---------- DEBUG: получить file_id загруженного видео ----------
-@dp.message(F.video)
-async def debug_video_id(message: Message):
-    uid = message.from_user.id
-    video_id = message.video.file_id
-    await message.answer(f"<b>VIDEO FILE_ID:</b>\n<code>{video_id}</code>")
-    print("VIDEO FILE_ID:", video_id)
-
 
 # ---------- Фото + пресеты (с авто-рекомендацией Blink & Glow) ----------
 
