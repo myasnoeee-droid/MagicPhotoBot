@@ -42,6 +42,9 @@ ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",")
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
 
+# Заставка — оживлённое видео Гарри Поттера (file_id из Telegram / .env)
+INTRO_VIDEO_FILE_ID = os.getenv("INTRO_VIDEO_FILE_ID", "")
+
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
@@ -593,6 +596,16 @@ async def on_start(message: Message):
             pass
     # --- конец блока рефералки ---
 
+    # 🎬 Заставка с оживлённым Гарри Поттером
+    if INTRO_VIDEO_FILE_ID:
+        try:
+            await message.answer_video(
+                video=INTRO_VIDEO_FILE_ID,
+                supports_streaming=True
+            )
+        except Exception as e:
+            logger.warning("Failed to send intro video: %s", e)
+
     if uid not in user_lang:
         text = tr_lang("ua", "choose_language") or (
             "🧙‍♂️ <b>Magl’sBot вітає тебе, мандрівнику-магу!</b>\n\n✨ Обери мову чарівної книги:"
@@ -1028,7 +1041,7 @@ async def on_preset(query: CallbackQuery):
     if desc:
         header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
     else:
-        header_text = f"🎨 {title_txt}\n\n{confirm_line}"
+        header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
 
     await query.message.edit_text(header_text, reply_markup=confirm_preset_keyboard(uid))
     await query.answer()
