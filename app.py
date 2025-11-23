@@ -53,7 +53,7 @@ INTRO_VIDEO_FILE_ID = os.getenv(
 ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", "-5085880330"))
 
 # Интервал пушей рефералок (по умолчанию 24 часа)
-PUSH_INTERVAL_SECONDS = int(os.getenv("REF_PUSH_INTERVAL", "86400"))
+PUSH_INTERVAL_SECONDS = int(os.getenv("REF_PUSH_INTERVAL", "172800"))
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
