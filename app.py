@@ -325,7 +325,7 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
             callback_data="buy:pack_10",
         ),
         InlineKeyboardButton(
-            text=tr_lang(lang, "buy_btn_25") or "💎 25 animations",
+            text=tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐",
             callback_data="buy:pack_25",
         ),
         InlineKeyboardButton(
@@ -361,7 +361,7 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
             callback_data="buy:pack_10",
         ),
         InlineKeyboardButton(
-            text="💫 " + (tr_lang(lang, "buy_btn_25") or "25 animations"),
+            text="💫 " + (tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐"),
             callback_data="buy:pack_25",
         ),
         InlineKeyboardButton(
@@ -637,10 +637,20 @@ async def on_lang_set(query: CallbackQuery):
     if code not in LOCALES:
         await query.answer("Language not available", show_alert=True)
         return
+
     user_lang[uid] = code
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
-    await query.message.edit_text(tr(uid, "lang_set"))
+
+    # Аккуратно работаем с медиа-сообщением (видео-заставкой)
+    try:
+        await query.message.edit_caption(tr(uid, "lang_set"))
+    except Exception:
+        try:
+            await query.message.edit_text(tr(uid, "lang_set"))
+        except Exception:
+            await query.message.answer(tr(uid, "lang_set"))
+
     await query.message.answer(
         tr(uid, "welcome"),
         reply_markup=main_menu_keyboard(uid)
@@ -1157,7 +1167,6 @@ async def on_confirm_ok(query: CallbackQuery):
         tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
         await download_file(video_url, tmp_path)
 
-        # Локализованный watermark в подписи
         wm_map = {
             "ua": "\n\n🔖 Зроблено в Magl’sBot",
             "en": "\n\n🔖 Made with Magl’sBot",
