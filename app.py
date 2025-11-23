@@ -3,6 +3,7 @@ import asyncio
 import logging
 import json
 import random
+import time
 from pathlib import Path
 from typing import Dict, Any
 
@@ -50,6 +51,9 @@ INTRO_VIDEO_FILE_ID = os.getenv(
 
 # Чат для заявок на видео "под ключ"
 ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", "-5085880330"))
+
+# Интервал пушей рефералок (по умолчанию 24 часа)
+PUSH_INTERVAL_SECONDS = int(os.getenv("REF_PUSH_INTERVAL", "86400"))
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -216,6 +220,16 @@ PRESET_TITLES: Dict[str, list[str]] = {
 
 pending_photo: Dict[int, Dict[str, Any]] = {}
 pending_choice: Dict[int, Dict[str, Any]] = {}
+
+# ---------- Пользователи и пуши ----------
+
+known_users: set[int] = set()
+last_ref_push: Dict[int, float] = {}  # user_id -> last push ts
+
+
+def register_user(uid: int):
+    if uid and uid > 0:
+        known_users.add(uid)
 
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
@@ -537,6 +551,106 @@ def referral_info_text(lang: str) -> str:
     return mapping.get(lang, en)
 
 
+def get_ref_push_text(lang: str, variant: int) -> str:
+    """
+    variant:
+      1 — м'який пуш
+      2 — активаційний (коли лишився 1 друг до бонусу)
+    """
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    texts = {
+        "ua": {
+            1: "✨ У тебе ще є шанс отримати безкоштовне оживлення.\nЗапроси 3 друзів — і магія зробить це за тебе 🪄",
+            2: "🔥 Магічний бонус чекає!\nЗапроси ще 1 друга — і відкриється нове безкоштовне оживлення.",
+        },
+        "en": {
+            1: "✨ You still have a chance to get a free animation.\nInvite 3 friends and let the magic do the rest 🪄",
+            2: "🔥 A magic bonus is waiting!\nInvite 1 more friend to unlock a new free animation.",
+        },
+        "es": {
+            1: "✨ Aún tienes la oportunidad de conseguir una animación gratis.\nInvita a 3 amigos y deja que la magia haga el resto 🪄",
+            2: "🔥 ¡Un bono mágico te espera!\nInvita a 1 amigo más y se activará una nueva animación gratis.",
+        },
+        "pt": {
+            1: "✨ Você ainda tem a chance de ganhar uma animação grátis.\nConvide 3 amigos e deixe a magia fazer o resto 🪄",
+            2: "🔥 Um bônus mágico está esperando!\nConvide mais 1 amigo para liberar uma nova animação grátis.",
+        },
+    }
+    return texts.get(lang, {}).get(variant, "")
+
+
+def get_ref_bonus_text(lang: str, bonus_stars: int, gained_credits: int, credits_balance: int) -> str:
+    """
+    Вариант 3 — стимулюючий (коли друг поповнив Stars)
+    🎉 Один із твоїх друзів поповнив Stars!
+    Ти отримав свій магічний бонус — +5% ✨
+
+    Запроси ще, щоб отримати більше подарунків 🪄
+    """
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    if lang == "ua":
+        lines = [
+            "🎉 Один із твоїх друзів поповнив Stars!",
+            "Ти отримав свій магічний бонус — +5% ✨",
+            f"Це <b>{bonus_stars}</b> Stars на твоєму реферальному балансі.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Частину вже конвертовано у додаткові оживлення.\n"
+                f"Зараз у тебе: <b>{credits_balance}</b> кредитів."
+            )
+        lines.append("\nЗапроси ще, щоб отримати більше подарунків 🪄")
+        return "\n".join(lines)
+
+    if lang == "en":
+        lines = [
+            "🎉 One of your friends just topped up Stars!",
+            "You received your magic bonus — +5% ✨",
+            f"That’s <b>{bonus_stars}</b> Stars on your referral balance.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Part of it has already been converted into extra animations.\n"
+                f"Your current balance: <b>{credits_balance}</b> credits."
+            )
+        lines.append("\nInvite more friends to get even more rewards 🪄")
+        return "\n".join(lines)
+
+    if lang == "es":
+        lines = [
+            "🎉 ¡Uno de tus amigos recargó Stars!",
+            "Has recibido tu bono mágico — +5% ✨",
+            f"Son <b>{bonus_stars}</b> Stars en tu saldo de referidos.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Parte ya se convirtió en animaciones extra.\n"
+                f"Tu saldo actual: <b>{credits_balance}</b> animaciones."
+            )
+        lines.append("\nInvita a más amigos para recibir más regalos 🪄")
+        return "\n".join(lines)
+
+    if lang == "pt":
+        lines = [
+            "🎉 Um dos seus amigos acabou de recarregar Stars!",
+            "Você recebeu seu bônus mágico — +5% ✨",
+            f"Isto é <b>{bonus_stars}</b> Stars no seu saldo de indicação.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Uma parte já foi convertida em animações extras.\n"
+                f"Seu saldo atual: <b>{credits_balance}</b> créditos."
+            )
+        lines.append("\nConvide mais amigos para ganhar ainda mais recompensas 🪄")
+        return "\n".join(lines)
+
+    return ""
+
+
 async def register_referral(new_user_id: int, inviter_id: int):
     if new_user_id == inviter_id:
         return
@@ -571,6 +685,58 @@ async def register_referral(new_user_id: int, inviter_id: int):
     except Exception as e:
         logger.warning("Failed to notify inviter: %s", e)
 
+# ---------- Пуш-воркер для рефералок ----------
+
+async def referral_reminder_worker():
+    """
+    Раз в PUSH_INTERVAL_SECONDS обходит всех известных юзеров и мягко пингует рефералку.
+    Логика:
+      - если до следующего бесплатного оживления >1 друга → вариант 1
+      - если до следующего бонуса 1 друг → вариант 2
+    """
+    await asyncio.sleep(10)  # чуть подождать после старта
+    while True:
+        try:
+            await asyncio.sleep(PUSH_INTERVAL_SECONDS)
+            now = time.time()
+
+            for uid in list(known_users):
+                if uid <= 0:
+                    continue
+
+                # чтобы не спамить — минимум 0.9 * интервала между пушами
+                last = last_ref_push.get(uid, 0)
+                if now - last < PUSH_INTERVAL_SECONDS * 0.9:
+                    continue
+
+                count = ref_count.get(uid, 0)
+                if count <= 0:
+                    friends_to_next = 3
+                else:
+                    mod = count % 3
+                    friends_to_next = 3 if mod == 0 else (3 - mod)
+
+                # если нет смысла пушить (например, user вообще не пользуется рефералкой) — всё равно мягко напоминаем
+                if friends_to_next == 1:
+                    variant = 2
+                else:
+                    variant = 1
+
+                lang = get_lang(uid)
+                text = get_ref_push_text(lang, variant)
+                if not text:
+                    continue
+
+                try:
+                    await bot.send_message(uid, text)
+                    last_ref_push[uid] = now
+                    logger.info(f"Sent referral push (variant={variant}) to {uid}")
+                except Exception as e:
+                    logger.warning(f"Failed to send referral push to {uid}: {e}")
+        except Exception as e:
+            logger.exception(f"Error in referral_reminder_worker: {e}")
+            await asyncio.sleep(60)
+
 # ---------- Handlers ----------
 
 @dp.message(CommandStart())
@@ -582,6 +748,7 @@ async def on_start(message: Message):
         return
 
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
 
     # разбор реферального payload
     parts = (message.text or "").split(maxsplit=1)
@@ -590,6 +757,7 @@ async def on_start(message: Message):
         try:
             inviter_id = int(payload[4:])
             await register_referral(uid, inviter_id)
+            register_user(inviter_id)
         except ValueError:
             pass
 
@@ -633,6 +801,7 @@ async def on_start(message: Message):
 @dp.callback_query(F.data.startswith("lang:"))
 async def on_lang_set(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     _, code = query.data.split(":", 1)
     if code not in LOCALES:
         await query.answer("Language not available", show_alert=True)
@@ -661,18 +830,21 @@ async def on_lang_set(query: CallbackQuery):
 @dp.message(Command("pricing"))
 async def on_pricing(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     await message.answer(tr(uid, "pricing"))
 
 
 @dp.message(Command("buy"))
 async def on_buy(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
 
 
 @dp.message(Command("balance"))
 async def on_balance(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     await message.answer(
         tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
     )
@@ -681,6 +853,7 @@ async def on_balance(message: Message):
 @dp.message(Command("menu"))
 async def on_menu(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
@@ -690,6 +863,7 @@ async def on_menu(message: Message):
 @dp.message(Command("admin"))
 async def on_admin(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     if uid != ADMIN_USER_ID:
         await message.answer("⛔️ You are not an admin.")
         return
@@ -752,6 +926,7 @@ async def on_admin_action(query: CallbackQuery):
 @dp.callback_query(F.data.startswith("buy:"))
 async def on_buy_click(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     code = query.data.split(":", 1)[1]
     pack = PACKS.get(code)
     if not pack:
@@ -781,6 +956,7 @@ async def on_checkout(pre: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def on_payment(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     sp = message.successful_payment
     payload = sp.invoice_payload
     pack = PACKS.get(payload)
@@ -796,6 +972,7 @@ async def on_payment(message: Message):
 
     inviter_id = ref_inviter.get(uid)
     if inviter_id:
+        register_user(inviter_id)
         total_stars = sp.total_amount
         bonus_stars = int(total_stars * 0.05)
         if bonus_stars > 0:
@@ -806,21 +983,31 @@ async def on_payment(message: Message):
                 user_credits[inviter_id] = user_credits.get(inviter_id, 0) + 1
                 gained_credits += 1
             try:
-                text_lines = [
-                    "💫 Твій друг поповнив баланс у Magl’sBot!",
-                    f"Ти отримав <b>{bonus_stars}</b> Stars (5% від його поповнення).",
-                ]
-                if gained_credits > 0:
-                    text_lines.append(
-                        f"Це перетворено на +{gained_credits} додаткових оживлень.\n"
-                        f"Зараз у тебе: {user_credits[inviter_id]} кредитів."
-                    )
-                else:
-                    text_lines.append(
-                        "Ці Stars збережені на реферальному балансі. "
-                        "Ще трохи — і вони перетворяться на нове безкоштовне оживлення ✨"
-                    )
-                await bot.send_message(inviter_id, "\n".join(text_lines))
+                lang_inv = get_lang(inviter_id)
+                text = get_ref_bonus_text(
+                    lang_inv,
+                    bonus_stars=bonus_stars,
+                    gained_credits=gained_credits,
+                    credits_balance=user_credits.get(inviter_id, 0),
+                )
+                if not text:
+                    # fallback на старый текст, если что-то не так
+                    text_lines = [
+                        "💫 Твій друг поповнив баланс у Magl’sBot!",
+                        f"Ти отримав <b>{bonus_stars}</b> Stars (5% від його поповнення).",
+                    ]
+                    if gained_credits > 0:
+                        text_lines.append(
+                            f"Це перетворено на +{gained_credits} додаткових оживлень.\n"
+                            f"Зараз у тебе: {user_credits[inviter_id]} кредитів."
+                        )
+                    else:
+                        text_lines.append(
+                            "Ці Stars збережені на реферальному балансі. "
+                            "Ще трохи — і вони перетворяться на нове безкоштовне оживлення ✨"
+                        )
+                    text = "\n".join(text_lines)
+                await bot.send_message(inviter_id, text)
             except Exception as e:
                 logger.warning("Failed to notify inviter about stars bonus: %s", e)
 
@@ -837,6 +1024,7 @@ async def on_payment(message: Message):
 async def on_text(message: Message):
     text = message.text or ""
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
@@ -970,6 +1158,7 @@ async def on_text(message: Message):
 @dp.message(F.photo)
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
@@ -1041,6 +1230,7 @@ async def on_photo(message: Message):
 @dp.callback_query(F.data.startswith("preset:"))
 async def on_preset(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     data = query.data.split(":", 1)[1]
     info = pending_photo.get(uid)
 
@@ -1108,6 +1298,7 @@ async def on_preset(query: CallbackQuery):
 @dp.callback_query(F.data == "confirm:back")
 async def on_confirm_back(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     info = pending_photo.get(uid)
     if not info:
         await query.message.edit_text(tr(uid, "done"))
@@ -1126,6 +1317,7 @@ async def on_confirm_back(query: CallbackQuery):
 @dp.callback_query(F.data == "confirm:ok")
 async def on_confirm_ok(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     info = pending_photo.get(uid)
     choice = pending_choice.get(uid)
     if not info or not choice:
@@ -1209,8 +1401,14 @@ async def on_confirm_ok(query: CallbackQuery):
 
 # ---------- MAIN ----------
 
+async def main_async():
+    # запускаем пуш-воркер
+    asyncio.create_task(referral_reminder_worker())
+    await dp.start_polling(bot)
+
+
 def main():
-    asyncio.run(dp.start_polling(bot))
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
