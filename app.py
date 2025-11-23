@@ -105,7 +105,6 @@ def tr_lang(lang: str, key: str) -> str:
 
 
 def lang_choice_keyboard() -> InlineKeyboardMarkup:
-    # Магический экран выбора языка
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -114,7 +113,7 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🇪🇸 Español", callback_data="lang:es"),
-                InlineKeyboardButton(text="🇵🇹 Português", callback_data="lang:pt"),
+                InlineKeyboardButton(text="🇧🇷 Português (BR)", callback_data="lang:pt"),
             ],
         ]
     )
