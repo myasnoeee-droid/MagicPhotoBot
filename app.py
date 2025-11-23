@@ -53,7 +53,7 @@ INTRO_VIDEO_FILE_ID = os.getenv(
 ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", "-5085880330"))
 
 # Интервал пушей рефералок (по умолчанию 24 часа)
-PUSH_INTERVAL_SECONDS = int(os.getenv("REF_PUSH_INTERVAL", "172800"))
+PUSH_INTERVAL_SECONDS = int(os.getenv("REF_PUSH_INTERVAL", "86400"))
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -320,87 +320,6 @@ ref_inviter: Dict[int, int] = {}
 ref_count: Dict[int, int] = {}
 ref_stars_balance: Dict[int, int] = {}
 
-
-def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
-    lang = get_lang(uid)
-    popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
-
-    buttons = [
-        InlineKeyboardButton(
-            text=popular_text,
-            callback_data="buy:pack_3",
-        ),
-        InlineKeyboardButton(
-            text=tr_lang(lang, "buy_btn_5"),
-            callback_data="buy:pack_5",
-        ),
-        InlineKeyboardButton(
-            text=tr_lang(lang, "buy_btn_10"),
-            callback_data="buy:pack_10",
-        ),
-        InlineKeyboardButton(
-            text=tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐",
-            callback_data="buy:pack_25",
-        ),
-        InlineKeyboardButton(
-            text=tr_lang(lang, "buy_btn_1"),
-            callback_data="buy:pack_1",
-        ),
-    ]
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[b] for b in buttons]
-    )
-
-
-def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура, которая показывается под готовым видео.
-    Пакеты + кнопка «Поделиться» (с реф-ссылкой).
-    """
-    lang = get_lang(uid)
-    popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
-
-    buy_buttons = [
-        InlineKeyboardButton(
-            text=popular_text,
-            callback_data="buy:pack_3",
-        ),
-        InlineKeyboardButton(
-            text="💫 " + tr_lang(lang, "buy_btn_5"),
-            callback_data="buy:pack_5",
-        ),
-        InlineKeyboardButton(
-            text="💫 " + tr_lang(lang, "buy_btn_10"),
-            callback_data="buy:pack_10",
-        ),
-        InlineKeyboardButton(
-            text="💫 " + (tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐"),
-            callback_data="buy:pack_25",
-        ),
-        InlineKeyboardButton(
-            text="💫 " + tr_lang(lang, "buy_btn_1"),
-            callback_data="buy:pack_1",
-        ),
-    ]
-
-    share_labels = {
-        "ua": "📤 Поділитися",
-        "en": "📤 Share",
-        "es": "📤 Compartir",
-        "pt": "📤 Compartilhar",
-    }
-    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
-    share_button = InlineKeyboardButton(
-        text=share_labels.get(lang, share_labels["en"]),
-        url=ref_link,
-    )
-
-    rows = [[b] for b in buy_buttons]
-    rows.append([share_button])
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
 # ---------- Главное меню (ReplyKeyboard) ----------
 
 MENU_BUTTONS = {
@@ -411,6 +330,7 @@ MENU_BUTTONS = {
         "share": "📤 Розповісти друзям",
         "balance": "💰 Баланс",
         "order_video": "🎬 Замовити відео під ключ",
+        "stats": "📊 Моя статистика",
     },
     "en": {
         "animate": "🪄 Animate photo",
@@ -419,6 +339,7 @@ MENU_BUTTONS = {
         "share": "📤 Tell friends",
         "balance": "💰 Balance",
         "order_video": "🎬 Order custom video",
+        "stats": "📊 My stats",
     },
     "es": {
         "animate": "🪄 Animar foto",
@@ -427,6 +348,7 @@ MENU_BUTTONS = {
         "share": "📤 Compartir",
         "balance": "💰 Balance",
         "order_video": "🎬 Encargar video a medida",
+        "stats": "📊 Mis estadísticas",
     },
     "pt": {
         "animate": "🪄 Animar foto",
@@ -435,6 +357,7 @@ MENU_BUTTONS = {
         "share": "📤 Compartilhar",
         "balance": "💰 Saldo",
         "order_video": "🎬 Encomendar vídeo sob medida",
+        "stats": "📊 Minhas estatísticas",
     },
 }
 
@@ -460,6 +383,7 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
             ],
             [
                 KeyboardButton(text=labels["order_video"]),
+                KeyboardButton(text=labels["stats"]),
             ],
         ],
     )
@@ -518,29 +442,30 @@ def build_admin_summary() -> str:
 # ---------- РЕФЕРАЛЬНАЯ МАГИЯ ----------
 
 def referral_info_text(lang: str) -> str:
+    # можно оставить как есть, это текст ПОСЛЕ анимации
     ua = (
         "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
-        "1) Запроси 3 друзів — отримай 1 <b>безкоштовне оживлення</b>.\n"
-        "2) Отримуй <b>5% Stars</b> від усіх поповнень друзів.\n\n"
+        "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
+        "Отримуй 5% Stars від усіх поповнень друзів.\n\n"
         "Поділись ботом через кнопку «Розповісти друзям» в меню — і нехай магія розлітається світом 🪄"
     )
     en = (
         "✨ <b>Magl’sBot referral magic</b>\n\n"
-        "1) Invite 3 friends — get 1 <b>free animation</b>.\n"
-        "2) Earn <b>5% Stars</b> from all your friends’ top-ups.\n\n"
-        "Share the bot via “Tell friends” button in the menu and let the magic spread 🪄"
+        "Invite 3 friends — get 1 free animation.\n"
+        "Earn 5% Stars from all your friends’ top-ups.\n\n"
+        "Share the bot via the “Tell friends” button and let the magic spread 🪄"
     )
     es = (
         "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
-        "1) Invita a 3 amigos — recibe 1 <b>animación gratis</b>.\n"
-        "2) Gana <b>5% en Stars</b> de todas las recargas de tus amigos.\n\n"
-        "Comparte el bot con el botón “Compartir” en el menú y deja que la magia se expanda 🪄"
+        "Invita a 3 amigos — recibe 1 animación gratis.\n"
+        "Gana 5% en Stars de todas las recargas de tus amigos.\n\n"
+        "Comparte el bot con el botón “Compartir” y deja que la magia se expanda 🪄"
     )
     pt = (
         "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
-        "1) Convide 3 amigos — ganhe 1 <b>animação grátis</b>.\n"
-        "2) Ganhe <b>5% em Stars</b> de todas as recargas dos seus amigos.\n\n"
-        "Compartilhe o bot pelo botão “Compartilhar” no menu e deixe a magia se espalhar 🪄"
+        "Convide 3 amigos — ganhe 1 animação grátis.\n"
+        "Ganhe 5% em Stars de todas as recargas dos seus amigos.\n\n"
+        "Compartilhe o bot pelo botão “Compartilhar” e deixe a magia se espalhar 🪄"
     )
     mapping = {
         "ua": ua,
@@ -549,6 +474,126 @@ def referral_info_text(lang: str) -> str:
         "pt": pt,
     }
     return mapping.get(lang, en)
+
+
+def get_ref_main_text(lang: str) -> str:
+    """
+    Экран при входе в реферальный раздел.
+    """
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    if lang == "ua":
+        return (
+            "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
+            "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
+            "Отримуй 5% Stars від усіх поповнень друзів.\n\n"
+            "Поділись ботом через кнопку нижче — і нехай магія розлітається світом 🪄"
+        )
+    if lang == "en":
+        return (
+            "✨ <b>Magl’sBot referral magic</b>\n\n"
+            "Invite 3 friends — get 1 free animation.\n"
+            "Earn 5% Stars from all your friends’ top-ups.\n\n"
+            "Share the bot using the button below and let the magic spread around the world 🪄"
+        )
+    if lang == "es":
+        return (
+            "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
+            "Invita a 3 amigos — recibe 1 animación gratis.\n"
+            "Gana 5% en Stars de todas las recargas de tus amigos.\n\n"
+            "Comparte el bot con el botón de abajo y deja que la magia se expanda por el mundo 🪄"
+        )
+    if lang == "pt":
+        return (
+            "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
+            "Convide 3 amigos — ganhe 1 animação grátis.\n"
+            "Ganhe 5% em Stars de todas as recargas dos seus amigos.\n\n"
+            "Compartilhe o bot pelo botão abaixo e deixe a magia se espalhar pelo mundo 🪄"
+        )
+    return ""
+
+
+def build_referral_stats_text(uid: int) -> str:
+    lang = get_lang(uid)
+    invited = ref_count.get(uid, 0)
+    free_from_invites = invited // 3
+    pending_stars = ref_stars_balance.get(uid, 0)
+    credits = user_credits.get(uid, 0)
+
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    if lang == "ua":
+        lines = [
+            "📊 <b>Твоя реферальна статистика</b>",
+            "",
+            f"👥 Запрошено друзів: <b>{invited}</b>",
+            f"🎁 Безкоштовних оживлень за друзів (накопичено всього): <b>{free_from_invites}</b>",
+            f"⭐ Накопичено реферальних Stars (ще не конвертовано): <b>{pending_stars}</b>",
+            f"💰 Поточний баланс оживлень: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    if lang == "en":
+        lines = [
+            "📊 <b>Your referral stats</b>",
+            "",
+            f"👥 Friends invited: <b>{invited}</b>",
+            f"🎁 Free animations from invites (total accrued): <b>{free_from_invites}</b>",
+            f"⭐ Referral Stars accumulated (not yet converted): <b>{pending_stars}</b>",
+            f"💰 Current animation balance: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    if lang == "es":
+        lines = [
+            "📊 <b>Tus estadísticas de referidos</b>",
+            "",
+            f"👥 Amigos invitados: <b>{invited}</b>",
+            f"🎁 Animaciones gratis por referidos (acumuladas): <b>{free_from_invites}</b>",
+            f"⭐ Stars de referidos acumuladas (sin convertir): <b>{pending_stars}</b>",
+            f"💰 Balance actual de animaciones: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    if lang == "pt":
+        lines = [
+            "📊 <b>Suas estatísticas de indicação</b>",
+            "",
+            f"👥 Amigos indicados: <b>{invited}</b>",
+            f"🎁 Animações grátis por indicações (acumuladas): <b>{free_from_invites}</b>",
+            f"⭐ Stars de indicação acumuladas (ainda não convertidas): <b>{pending_stars}</b>",
+            f"💰 Saldo atual de animações: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    return ""
+
+
+def referral_main_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    share_labels = {
+        "ua": "📤 Розповісти друзям",
+        "en": "📤 Tell friends",
+        "es": "📤 Compartir con amigos",
+        "pt": "📤 Compartilhar com amigos",
+    }
+    stats_labels = {
+        "ua": "📊 Моя статистика",
+        "en": "📊 My stats",
+        "es": "📊 Mis estadísticas",
+        "pt": "📊 Minhas estatísticas",
+    }
+    share_text = share_labels.get(lang, share_labels["en"])
+    stats_text = stats_labels.get(lang, stats_labels["en"])
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=share_text, callback_data="ref:share")],
+            [InlineKeyboardButton(text=stats_text, callback_data="ref:stats")],
+        ]
+    )
 
 
 def get_ref_push_text(lang: str, variant: int) -> str:
@@ -584,10 +629,6 @@ def get_ref_push_text(lang: str, variant: int) -> str:
 def get_ref_bonus_text(lang: str, bonus_stars: int, gained_credits: int, credits_balance: int) -> str:
     """
     Вариант 3 — стимулюючий (коли друг поповнив Stars)
-    🎉 Один із твоїх друзів поповнив Stars!
-    Ти отримав свій магічний бонус — +5% ✨
-
-    Запроси ще, щоб отримати більше подарунків 🪄
     """
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
@@ -690,11 +731,8 @@ async def register_referral(new_user_id: int, inviter_id: int):
 async def referral_reminder_worker():
     """
     Раз в PUSH_INTERVAL_SECONDS обходит всех известных юзеров и мягко пингует рефералку.
-    Логика:
-      - если до следующего бесплатного оживления >1 друга → вариант 1
-      - если до следующего бонуса 1 друг → вариант 2
     """
-    await asyncio.sleep(10)  # чуть подождать после старта
+    await asyncio.sleep(10)
     while True:
         try:
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
@@ -704,7 +742,6 @@ async def referral_reminder_worker():
                 if uid <= 0:
                     continue
 
-                # чтобы не спамить — минимум 0.9 * интервала между пушами
                 last = last_ref_push.get(uid, 0)
                 if now - last < PUSH_INTERVAL_SECONDS * 0.9:
                     continue
@@ -716,7 +753,6 @@ async def referral_reminder_worker():
                     mod = count % 3
                     friends_to_next = 3 if mod == 0 else (3 - mod)
 
-                # если нет смысла пушить (например, user вообще не пользуется рефералкой) — всё равно мягко напоминаем
                 if friends_to_next == 1:
                     variant = 2
                 else:
@@ -858,6 +894,17 @@ async def on_menu(message: Message):
     awaiting_video_order.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
 
+# Дополнительно: команда /ref для входа в реферальный раздел
+@dp.message(Command("ref"))
+async def on_ref_command(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    lang = get_lang(uid)
+    await message.answer(
+        get_ref_main_text(lang),
+        reply_markup=referral_main_keyboard(uid)
+    )
+
 # ---------- /admin и admin callbacks ----------
 
 @dp.message(Command("admin"))
@@ -922,6 +969,87 @@ async def on_admin_action(query: CallbackQuery):
         return
 
 # ---------- Покупка пакетов ----------
+
+def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
+
+    buttons = [
+        InlineKeyboardButton(
+            text=popular_text,
+            callback_data="buy:pack_3",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_5"),
+            callback_data="buy:pack_5",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_10"),
+            callback_data="buy:pack_10",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐",
+            callback_data="buy:pack_25",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_1"),
+            callback_data="buy:pack_1",
+        ),
+    ]
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[b] for b in buttons]
+    )
+
+
+def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура, которая показывается под готовым видео.
+    Пакеты + кнопка «Поделиться» (с реф-ссылкой).
+    """
+    lang = get_lang(uid)
+    popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
+
+    buy_buttons = [
+        InlineKeyboardButton(
+            text=popular_text,
+            callback_data="buy:pack_3",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_5"),
+            callback_data="buy:pack_5",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_10"),
+            callback_data="buy:pack_10",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + (tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐"),
+            callback_data="buy:pack_25",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_1"),
+            callback_data="buy:pack_1",
+        ),
+    ]
+
+    share_labels = {
+        "ua": "📤 Поділитися",
+        "en": "📤 Share",
+        "es": "📤 Compartir",
+        "pt": "📤 Compartilhar",
+    }
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    share_button = InlineKeyboardButton(
+        text=share_labels.get(lang, share_labels["en"]),
+        url=ref_link,
+    )
+
+    rows = [[b] for b in buy_buttons]
+    rows.append([share_button])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 @dp.callback_query(F.data.startswith("buy:"))
 async def on_buy_click(query: CallbackQuery):
@@ -991,7 +1119,6 @@ async def on_payment(message: Message):
                     credits_balance=user_credits.get(inviter_id, 0),
                 )
                 if not text:
-                    # fallback на старый текст, если что-то не так
                     text_lines = [
                         "💫 Твій друг поповнив баланс у Magl’sBot!",
                         f"Ти отримав <b>{bonus_stars}</b> Stars (5% від його поповнення).",
@@ -1018,7 +1145,7 @@ async def on_payment(message: Message):
         )
     )
 
-# ---------- Главное меню: текстовые кнопки + поддержка + share + видео-заказы ----------
+# ---------- Главное меню: текстовые кнопки + поддержка + share + видео-заказы + статистика ----------
 
 @dp.message(F.text)
 async def on_text(message: Message):
@@ -1030,7 +1157,7 @@ async def on_text(message: Message):
 
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
-        awaiting_video_order.pop(uid, None)
+       awaiting_video_order.pop(uid, None)
         prompt_texts = {
             "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
             "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
@@ -1107,6 +1234,16 @@ async def on_text(message: Message):
         await message.answer(msg)
         return
 
+    if text == labels["stats"]:
+        # вход в реферальный раздел
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        await message.answer(
+            get_ref_main_text(lang),
+            reply_markup=referral_main_keyboard(uid)
+        )
+        return
+
     if awaiting_support.get(uid):
         dest = SUPPORT_CHAT_ID or ADMIN_USER_ID
         if dest:
@@ -1152,6 +1289,48 @@ async def on_text(message: Message):
         awaiting_video_order.pop(uid, None)
         return
     # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
+
+# ---------- Callback: реферальные кнопки (share + stats) ----------
+
+@dp.callback_query(F.data == "ref:share")
+async def on_ref_share(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+    lang = get_lang(uid)
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    share_texts = {
+        "ua": (
+            "📤 Поділись ботом з друзями:\n"
+            "Оживляємо фото в стилі Гаррі Поттера 🎬🪄\n"
+            f"{ref_link}"
+        ),
+        "en": (
+            "📤 Share this bot with friends:\n"
+            "We animate photos like Harry Potter portraits 🎬🪄\n"
+            f"{ref_link}"
+        ),
+        "es": (
+            "📤 Comparte este bot con tus amigos:\n"
+            "Animamos fotos como los retratos de Harry Potter 🎬🪄\n"
+            f"{ref_link}"
+        ),
+        "pt": (
+            "📤 Compartilhe este bot com seus amigos:\n"
+            "Animamos fotos como nos retratos de Harry Potter 🎬🪄\n"
+            f"{ref_link}"
+        ),
+    }
+    await query.message.answer(share_texts.get(lang, share_texts["en"]))
+    await query.answer()
+
+
+@dp.callback_query(F.data == "ref:stats")
+async def on_ref_stats(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+    text = build_referral_stats_text(uid)
+    await query.message.answer(text)
+    await query.answer()
 
 # ---------- Фото + пресеты ----------
 
@@ -1402,7 +1581,6 @@ async def on_confirm_ok(query: CallbackQuery):
 # ---------- MAIN ----------
 
 async def main_async():
-    # запускаем пуш-воркер
     asyncio.create_task(referral_reminder_worker())
     await dp.start_polling(bot)
 
