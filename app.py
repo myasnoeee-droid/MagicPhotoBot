@@ -332,7 +332,6 @@ MENU_BUTTONS = {
         "share": "📤 Розповісти друзям",
         "balance": "💰 Баланс",
         "order_video": "🎬 Замовити відео під ключ",
-        "stats": "📊 Моя статистика",
         "partner": "🤝 Партнерський кабінет",
     },
     "en": {
@@ -342,7 +341,6 @@ MENU_BUTTONS = {
         "share": "📤 Tell friends",
         "balance": "💰 Balance",
         "order_video": "🎬 Order custom video",
-        "stats": "📊 My stats",
         "partner": "🤝 Partner dashboard",
     },
     "es": {
@@ -352,7 +350,6 @@ MENU_BUTTONS = {
         "share": "📤 Compartir",
         "balance": "💰 Balance",
         "order_video": "🎬 Encargar video a medida",
-        "stats": "📊 Mis estadísticas",
         "partner": "🤝 Panel de socio",
     },
     "pt": {
@@ -362,7 +359,6 @@ MENU_BUTTONS = {
         "share": "📤 Compartilhar",
         "balance": "💰 Saldo",
         "order_video": "🎬 Encomendar vídeo sob medida",
-        "stats": "📊 Minhas estatísticas",
         "partner": "🤝 Painel de parceiro",
     },
 }
@@ -389,7 +385,6 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
             ],
             [
                 KeyboardButton(text=labels["order_video"]),
-                KeyboardButton(text=labels["stats"]),
             ],
             [
                 KeyboardButton(text=labels["partner"]),
@@ -486,7 +481,7 @@ def referral_info_text(lang: str) -> str:
 
 def get_ref_main_text(lang: str) -> str:
     """
-    Экран при входе в реферальный раздел (/ref или кнопка "Моя статистика")
+    Экран при входе в реферальный раздел (/ref)
     """
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
@@ -605,18 +600,50 @@ def referral_main_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 # ---------- ПАРТНЁРСКИЙ КАБИНЕТ ----------
 
+def get_partner_level(total_invited: int, lang: str) -> str:
+    if total_invited >= 100:
+        ua = "🏆 <b>Archmage Partner</b>"
+        en = "🏆 <b>Archmage Partner</b>"
+        es = "🏆 <b>Socio Archimago</b>"
+        pt = "🏆 <b>Parceiro Arquimago</b>"
+    elif total_invited >= 30:
+        ua = "💎 <b>Master Mage Partner</b>"
+        en = "💎 <b>Master Mage Partner</b>"
+        es = "💎 <b>Socio Mago Maestro</b>"
+        pt = "💎 <b>Parceiro Mago Mestre</b>"
+    elif total_invited >= 10:
+        ua = "✨ <b>Apprentice Mage Partner</b>"
+        en = "✨ <b>Apprentice Mage Partner</b>"
+        es = "✨ <b>Socio Mago Aprendiz</b>"
+        pt = "✨ <b>Parceiro Mago Aprendiz</b>"
+    elif total_invited >= 1:
+        ua = "🔮 <b>New Mage Partner</b>"
+        en = "🔮 <b>New Mage Partner</b>"
+        es = "🔮 <b>Nuevo socio mago</b>"
+        pt = "🔮 <b>Novo parceiro mago</b>"
+    else:
+        ua = "🌱 <b>Почни свою магічну подорож</b>"
+        en = "🌱 <b>Start your magic journey</b>"
+        es = "🌱 <b>Comienza tu viaje mágico</b>"
+        pt = "🌱 <b>Comece sua jornada mágica</b>"
+
+    if lang == "ua":
+        return ua
+    if lang == "es":
+        return es
+    if lang == "pt":
+        return pt
+    return en
+
+
 def build_partner_dashboard_text(uid: int) -> str:
     lang = get_lang(uid)
 
-    # кого пригласил этот юзер
     invited_users = [u for u, inv in ref_inviter.items() if inv == uid]
     total = len(invited_users)
 
-    # активные (делали анимацию или покупку)
     active = 0
     payers = 0
-
-    # попытка достучаться до внутреннего usage лимитера
     free_usage = getattr(limiter, "_usage", {})
 
     for u in invited_users:
@@ -631,8 +658,13 @@ def build_partner_dashboard_text(uid: int) -> str:
             payers += 1
 
     bonus = ref_stars_total.get(uid, 0)
+    total_users = len(known_users)
+
+    cr_active = (active / total * 100) if total else 0.0
+    cr_payers = (payers / total * 100) if total else 0.0
 
     ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    level_text = get_partner_level(total, lang)
 
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
@@ -640,52 +672,68 @@ def build_partner_dashboard_text(uid: int) -> str:
     if lang == "ua":
         text = (
             "🤝 <b>Партнерський кабінет Magl’sBot</b>\n\n"
-            f"🔗 <b>Твоя реферальна сила:</b>\n{ref_link}\n\n"
-            "<b>📊 Статистика:</b>\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Твоя магічна реферальна лінка:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "📊 <b>Статистика:</b>\n"
             f"👥 Запрошено користувачів: <b>{total}</b>\n"
-            f"✨ Зробили оживлення: <b>{active}</b>\n"
-            f"⭐ Купили Stars: <b>{payers}</b>\n"
-            f"💰 Нараховано бонусних Stars: <b>{bonus}</b>\n\n"
-            "Поширюй посилання та заробляй магічні бонуси 🪄"
+            f"✨ Оживили фото: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Купили Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Отримано бонусних Stars: <b>{bonus}</b>\n\n"
+            f"🌍 Учасників бота всього: <b>{total_users}</b>\n\n"
+            "📌 Поширюй цю лінку в сторіс, постах та чатах — "
+            "і отримуй магічні винагороди за кожного активного мага 🪄"
         )
         return text
 
     if lang == "en":
         text = (
             "🤝 <b>Magl’sBot Partner Dashboard</b>\n\n"
-            f"🔗 <b>Your referral link:</b>\n{ref_link}\n\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Your magic referral link:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
             "<b>📊 Stats:</b>\n"
             f"👥 Users invited: <b>{total}</b>\n"
-            f"✨ Did at least one animation: <b>{active}</b>\n"
-            f"⭐ Bought Stars: <b>{payers}</b>\n"
+            f"✨ Did at least one animation: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Bought Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
             f"💰 Bonus Stars earned: <b>{bonus}</b>\n\n"
-            "Share your link and earn magic rewards 🪄"
+            f"🌍 Total bot users: <b>{total_users}</b>\n\n"
+            "📌 Share this link in your stories, posts and chats — "
+            "and earn magic rewards for each active mage 🪄"
         )
         return text
 
     if lang == "es":
         text = (
             "🤝 <b>Panel de socio Magl’sBot</b>\n\n"
-            f"🔗 <b>Tu enlace de referido:</b>\n{ref_link}\n\n"
-            "<b>📊 Estadísticas:</b>\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Tu enlace mágico de referido:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "📊 <b>Estadísticas:</b>\n"
             f"👥 Usuarios invitados: <b>{total}</b>\n"
-            f"✨ Hicieron al menos una animación: <b>{active}</b>\n"
-            f"⭐ Compraron Stars: <b>{payers}</b>\n"
-            f"💰 Stars de bono ganadas: <b>{bonus}</b>\n\n"
-            "Comparte tu enlace y gana recompensas mágicas 🪄"
+            f"✨ Animaron al menos una foto: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Compraron Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Stars de bono recibidas: <b>{bonus}</b>\n\n"
+            f"🌍 Usuarios totales del bot: <b>{total_users}</b>\n\n"
+            "📌 Comparte este enlace en stories, posts y chats — "
+            "y gana recompensas mágicas por cada mago activo 🪄"
         )
         return text
 
     if lang == "pt":
         text = (
             "🤝 <b>Painel de parceiro Magl’sBot</b>\n\n"
-            f"🔗 <b>Seu link de indicação:</b>\n{ref_link}\n\n"
-            "<b>📊 Estatísticas:</b>\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Seu link mágico de indicação:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "📊 <b>Estatísticas:</b>\n"
             f"👥 Usuários indicados: <b>{total}</b>\n"
-            f"✨ Fizeram ao menos uma animação: <b>{active}</b>\n"
-            f"⭐ Compraram Stars: <b>{payers}</b>\n"
-            f"💰 Stars de bônus ganhos: <b>{bonus}</b>\n\n"
-            "Compartilhe seu link e ganhe recompensas mágicas 🪄"
+            f"✨ Fizeram ao menos uma animação: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Compraram Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Stars de bônus recebidas: <b>{bonus}</b>\n\n"
+            f"🌍 Usuários totais do bot: <b>{total_users}</b>\n\n"
+            "📌 Compartilhe este link em stories, posts e chats — "
+            "e ganhe recompensas mágicas por cada mago ativo 🪄"
         )
         return text
 
@@ -694,6 +742,28 @@ def build_partner_dashboard_text(uid: int) -> str:
 
 def partner_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+
+    share_texts = {
+        "ua": (
+            f"🪄 Спробуй Magl’sBot — бот, який оживляє фото, як у магічних фільмах:\n"
+            f"{ref_link}"
+        ),
+        "en": (
+            f"🪄 Try Magl’sBot — a bot that animates your photos like in magic movies:\n"
+            f"{ref_link}"
+        ),
+        "es": (
+            f"🪄 Prueba Magl’sBot — un bot que anima tus fotos como en películas mágicas:\n"
+            f"{ref_link}"
+        ),
+        "pt": (
+            f"🪄 Experimente o Magl’sBot — um bot que anima suas fotos como em filmes mágicos:\n"
+            f"{ref_link}"
+        ),
+    }
+    share_text = share_texts.get(lang, share_texts["en"])
+
     share_labels = {
         "ua": "📤 Поділитися посиланням",
         "en": "📤 Share link",
@@ -706,20 +776,27 @@ def partner_keyboard(uid: int) -> InlineKeyboardMarkup:
         "es": "🔄 Actualizar estadísticas",
         "pt": "🔄 Atualizar estatísticas",
     }
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=share_labels.get(lang, share_labels["en"]), callback_data="partner:share")],
-            [InlineKeyboardButton(text=reload_labels.get(lang, reload_labels["en"]), callback_data="partner:reload")],
+            [
+                InlineKeyboardButton(
+                    text=share_labels.get(lang, share_labels["en"]),
+                    switch_inline_query=share_text,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=reload_labels.get(lang, reload_labels["en"]),
+                    callback_data="partner:reload",
+                )
+            ],
         ]
     )
 
+# ---------- Пуши рефералок ----------
 
 def get_ref_push_text(lang: str, variant: int) -> str:
-    """
-    variant:
-      1 — м'який пуш
-      2 — активаційний (коли лишився 1 друг до бонусу)
-    """
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
 
@@ -745,9 +822,6 @@ def get_ref_push_text(lang: str, variant: int) -> str:
 
 
 def get_ref_bonus_text(lang: str, bonus_stars: int, gained_credits: int, credits_balance: int) -> str:
-    """
-    Вариант 3 — стимулюючий (коли друг поповнив Stars)
-    """
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
 
@@ -844,12 +918,8 @@ async def register_referral(new_user_id: int, inviter_id: int):
     except Exception as e:
         logger.warning("Failed to notify inviter: %s", e)
 
-# ---------- Пуш-воркер для рефералок ----------
 
 async def referral_reminder_worker():
-    """
-    Раз в PUSH_INTERVAL_SECONDS обходит всех известных юзеров и мягко пингует рефералку.
-    """
     await asyncio.sleep(10)
     while True:
         try:
@@ -904,7 +974,6 @@ async def on_start(message: Message):
     uid = message.from_user.id if message.from_user else 0
     register_user(uid)
 
-    # разбор реферального payload
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1] if len(parts) > 1 else ""
     if payload.startswith("ref_"):
@@ -915,7 +984,6 @@ async def on_start(message: Message):
         except ValueError:
             pass
 
-    # язык ещё не выбран — показываем заставку + выбор языка
     if uid not in user_lang:
         caption = (
             "Magl’sBot вітає тебе, мандрівнику-магу!\n\n"
@@ -937,7 +1005,6 @@ async def on_start(message: Message):
         await message.answer(caption, reply_markup=lang_choice_keyboard())
         return
 
-    # язык уже выбран — можно опционально показать видео и меню
     if INTRO_VIDEO_FILE_ID:
         try:
             await message.answer_video(
@@ -965,7 +1032,6 @@ async def on_lang_set(query: CallbackQuery):
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
-    # Аккуратно работаем с медиа-сообщением (видео-заставкой)
     try:
         await query.message.edit_caption(tr(uid, "lang_set"))
     except Exception:
@@ -1012,7 +1078,7 @@ async def on_menu(message: Message):
     awaiting_video_order.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
 
-# Команда /ref для входа в реферальный раздел
+
 @dp.message(Command("ref"))
 async def on_ref_command(message: Message):
     uid = message.from_user.id if message.from_user else 0
@@ -1023,7 +1089,7 @@ async def on_ref_command(message: Message):
         reply_markup=referral_main_keyboard(uid)
     )
 
-# Команда /partner — партнёрский кабинет
+
 @dp.message(Command("partner"))
 async def on_partner_command(message: Message):
     uid = message.from_user.id if message.from_user else 0
@@ -1077,10 +1143,10 @@ async def on_admin_action(query: CallbackQuery):
             if i >= 50:
                 lines.append("… (truncated)")
                 break
-            lang = get_lang(u)
+            lang_u = get_lang(u)
             paid = user_credits.get(u, 0)
             fu = free_usage.get(u, 0) if isinstance(free_usage, dict) else "?"
-            lines.append(f"• id={u}, lang={lang}, paid={paid}, free_used={fu}")
+            lines.append(f"• id={u}, lang={lang_u}, paid={paid}, free_used={fu}")
         text = "\n".join(lines)
         await query.message.edit_text(text, reply_markup=admin_keyboard())
         await query.answer("Users list")
@@ -1129,10 +1195,6 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура, которая показывается под готовым видео.
-    Пакеты + кнопка «Поделиться» (с реф-ссылкой).
-    """
     lang = get_lang(uid)
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
@@ -1231,9 +1293,7 @@ async def on_payment(message: Message):
         total_stars = sp.total_amount
         bonus_stars = int(total_stars * 0.05)
         if bonus_stars > 0:
-            # всего начисленных Stars
             ref_stars_total[inviter_id] = ref_stars_total.get(inviter_id, 0) + bonus_stars
-            # остаток для конвертации
             ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
 
             gained_credits = 0
@@ -1260,7 +1320,7 @@ async def on_payment(message: Message):
         )
     )
 
-# ---------- Главное меню: текстовые кнопки + поддержка + share + видео-заказы + статистика + партнёрка ----------
+# ---------- Главное меню: текстовые кнопки ----------
 
 @dp.message(F.text)
 async def on_text(message: Message):
@@ -1347,15 +1407,6 @@ async def on_text(message: Message):
             "pt": "🎬 Descreva que tipo de vídeo você precisa: formato, duração, estilo e objetivo — e entraremos em contato com uma proposta.",
         }.get(lang, "🎬 Please describe what kind of video you need in one message.")
         await message.answer(msg)
-        return
-
-    if text == labels["stats"]:
-        awaiting_support.pop(uid, None)
-        awaiting_video_order.pop(uid, None)
-        await message.answer(
-            get_ref_main_text(lang),
-            reply_markup=referral_main_keyboard(uid)
-        )
         return
 
     if text == labels["partner"]:
@@ -1455,38 +1506,6 @@ async def on_ref_stats(query: CallbackQuery):
 
 # ---------- Callback: партнёрский кабинет (share + reload) ----------
 
-@dp.callback_query(F.data == "partner:share")
-async def on_partner_share(query: CallbackQuery):
-    uid = query.from_user.id
-    register_user(uid)
-    lang = get_lang(uid)
-    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
-    share_texts = {
-        "ua": (
-            "📤 Ось твоє партнерське посилання:\n"
-            f"{ref_link}\n\n"
-            "Поділись ним з аудиторією — і отримуй магічні бонуси 🪄"
-        ),
-        "en": (
-            "📤 Here is your partner link:\n"
-            f"{ref_link}\n\n"
-            "Share it with your audience and earn magic rewards 🪄"
-        ),
-        "es": (
-            "📤 Este es tu enlace de socio:\n"
-            f"{ref_link}\n\n"
-            "Compártelo con tu audiencia y gana recompensas mágicas 🪄"
-        ),
-        "pt": (
-            "📤 Este é o seu link de parceiro:\n"
-            f"{ref_link}\n\n"
-            "Compartilhe com seu público e ganhe recompensas mágicas 🪄"
-        ),
-    }
-    await query.message.answer(share_texts.get(lang, share_texts["en"]))
-    await query.answer()
-
-
 @dp.callback_query(F.data == "partner:reload")
 async def on_partner_reload(query: CallbackQuery):
     uid = query.from_user.id
@@ -1494,7 +1513,6 @@ async def on_partner_reload(query: CallbackQuery):
     text = build_partner_dashboard_text(uid)
     await query.message.edit_text(text, reply_markup=partner_keyboard(uid))
     await query.answer("Оновлено!")
-
 
 # ---------- Фото + пресеты ----------
 
