@@ -48,6 +48,10 @@ INTRO_VIDEO_FILE_ID = os.getenv(
     "BAACAgIAAxkBAAICuWkgf1x1yIEgxE8FQoImZ5vuoxbOAALGiwACIA4JSfhC7_NPZQrDNgQ"
 )
 
+# Чат для заявок на видео "под ключ"
+# Можно переопределить через .env ORDER_CHAT_ID, но по умолчанию твой чат:
+ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", "-5085880330"))
+
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
@@ -299,6 +303,7 @@ PACKS = {
     "pack_3": ("3 animations", 3, 150),
     "pack_5": ("5 animations", 5, 300),
     "pack_10": ("10 animations", 10, 500),
+    "pack_25": ("25 animations", 25, 1000),
 }
 user_credits: Dict[int, int] = {}  # user_id -> credits
 
@@ -309,6 +314,11 @@ ref_stars_balance: Dict[int, int] = {}   # inviter_id -> accumulated Stars
 
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для /buy и кнопки «Купить генерации».
+    Популярный пакет (3 оживления) — первым, с 🔥.
+    Каждая кнопка в отдельной строке.
+    """
     lang = get_lang(uid)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
@@ -327,6 +337,10 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
             callback_data="buy:pack_10",
         ),
         InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_25") or "💎 25 animations",
+            callback_data="buy:pack_25",
+        ),
+        InlineKeyboardButton(
             text=tr_lang(lang, "buy_btn_1"),
             callback_data="buy:pack_1",
         ),
@@ -338,6 +352,10 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура, которая показывается под готовым видео.
+    Пакеты + кнопка «Поделиться ботом» (с реф-ссылкой).
+    """
     lang = get_lang(uid)
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
@@ -354,6 +372,10 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text="💫 " + tr_lang(lang, "buy_btn_10"),
             callback_data="buy:pack_10",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + (tr_lang(lang, "buy_btn_25") or "25 animations"),
+            callback_data="buy:pack_25",
         ),
         InlineKeyboardButton(
             text="💫 " + tr_lang(lang, "buy_btn_1"),
@@ -387,6 +409,7 @@ MENU_BUTTONS = {
         "support": "🆘 Підтримка",
         "share": "📤 Розповісти друзям",
         "balance": "💰 Баланс",
+        "order_video": "🎬 Замовити відео під ключ",
     },
     "en": {
         "animate": "🪄 Animate photo",
@@ -394,6 +417,7 @@ MENU_BUTTONS = {
         "support": "🆘 Support",
         "share": "📤 Tell friends",
         "balance": "💰 Balance",
+        "order_video": "🎬 Order custom video",
     },
     "es": {
         "animate": "🪄 Animar foto",
@@ -401,6 +425,7 @@ MENU_BUTTONS = {
         "support": "🆘 Soporte",
         "share": "📤 Compartir",
         "balance": "💰 Balance",
+        "order_video": "🎬 Encargar video a medida",
     },
     "pt": {
         "animate": "🪄 Animar foto",
@@ -408,6 +433,7 @@ MENU_BUTTONS = {
         "support": "🆘 Suporte",
         "share": "📤 Compartilhar",
         "balance": "💰 Saldo",
+        "order_video": "🎬 Encomendar vídeo sob medida",
     },
 }
 
@@ -431,13 +457,17 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
                 KeyboardButton(text=labels["support"]),
                 KeyboardButton(text=labels["share"]),
             ],
+            [
+                KeyboardButton(text=labels["order_video"]),
+            ],
         ],
     )
     return kb
 
-# ---------- Поддержка (support) ----------
+# ---------- Поддержка и заявки на видео ----------
 
-awaiting_support: Dict[int, bool] = {}  # user_id -> waiting for support message
+awaiting_support: Dict[int, bool] = {}       # user_id -> waiting for support message
+awaiting_video_order: Dict[int, bool] = {}   # user_id -> waiting for video brief
 
 # ---------- АДМИНСКИЕ СЧЁТЧИКИ И TEST MODE ----------
 
@@ -610,6 +640,7 @@ async def on_start(message: Message):
             logger.warning("Failed to send intro video (known lang): %s", e)
 
     awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
     await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
 
 
@@ -622,6 +653,7 @@ async def on_lang_set(query: CallbackQuery):
         return
     user_lang[uid] = code
     awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
     await query.message.edit_text(tr(uid, "lang_set"))
     await query.message.answer(
         tr(uid, "welcome"),
@@ -654,6 +686,7 @@ async def on_balance(message: Message):
 async def on_menu(message: Message):
     uid = message.from_user.id if message.from_user else 0
     awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
 
 # ---------- /admin и admin callbacks ----------
@@ -802,7 +835,7 @@ async def on_payment(message: Message):
         )
     )
 
-# ---------- Главное меню: текстовые кнопки + поддержка + share ----------
+# ---------- Главное меню: текстовые кнопки + поддержка + share + видео-заказы ----------
 
 @dp.message(F.text)
 async def on_text(message: Message):
@@ -813,6 +846,7 @@ async def on_text(message: Message):
 
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
         prompt_texts = {
             "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
             "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
@@ -824,17 +858,20 @@ async def on_text(message: Message):
 
     if text == labels["buy"]:
         awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
         await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
         return
 
     if text == labels["balance"]:
         awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
         await message.answer(
             tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
         )
         return
 
     if text == labels["support"]:
+        awaiting_video_order.pop(uid, None)
         awaiting_support[uid] = True
         msg = {
             "ua": "🆘 Напишіть, будь ласка, своє запитання або проблему одним повідомленням — я передам це живому магу підтримки.",
@@ -847,6 +884,7 @@ async def on_text(message: Message):
 
     if text == labels["share"]:
         awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
         ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
         share_texts = {
             "ua": (
@@ -873,6 +911,18 @@ async def on_text(message: Message):
         await message.answer(share_texts.get(lang, share_texts["en"]))
         return
 
+    if text == labels["order_video"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order[uid] = True
+        msg = {
+            "ua": "🎬 Опиши, будь ласка, яке відео тобі потрібно: формат, тривалість, стиль, для чого воно — і ми звʼяжемося з тобою з детальною пропозицією.",
+            "en": "🎬 Please describe what kind of video you need: format, length, style, purpose — and we’ll get back to you with a custom offer.",
+            "es": "🎬 Describe qué tipo de vídeo necesitas: formato, duración, estilo y propósito — y nos pondremos en contacto contigo con una propuesta.",
+            "pt": "🎬 Descreva que tipo de vídeo você precisa: formato, duração, estilo e objetivo — e entraremos em contato com uma proposta.",
+        }.get(lang, "🎬 Please describe what kind of video you need in one message.")
+        await message.answer(msg)
+        return
+
     if awaiting_support.get(uid):
         dest = SUPPORT_CHAT_ID or ADMIN_USER_ID
         if dest:
@@ -892,6 +942,31 @@ async def on_text(message: Message):
             await message.answer("⚠️ Support is not configured yet. Contact bot admin.")
         awaiting_support.pop(uid, None)
         return
+
+    if awaiting_video_order.get(uid):
+        dest = ORDER_CHAT_ID or SUPPORT_CHAT_ID or ADMIN_USER_ID
+        if dest:
+            username = (message.from_user.username if message.from_user else None) or "unknown"
+            header = f"🎬 New video order from @{username} (id={uid}):"
+            try:
+                await bot.send_message(
+                    chat_id=dest,
+                    text=f"{header}\n\n{text}"
+                )
+                confirm = {
+                    "ua": "✅ Дякуємо! Твоє замовлення на відео передано. Ми звʼяжемося з тобою найближчим часом.",
+                    "en": "✅ Thank you! Your video request has been sent. We’ll contact you shortly.",
+                    "es": "✅ ¡Gracias! Tu solicitud de vídeo ha sido enviada. Nos pondremos en contacto contigo pronto.",
+                    "pt": "✅ Obrigado! Seu pedido de vídeo foi enviado. Entraremos em contato em breve.",
+                }.get(lang, "✅ Your video request has been sent. We’ll contact you soon.")
+                await message.answer(confirm)
+            except Exception as e:
+                logger.exception("Failed to send video order message: %s", e)
+                await message.answer("⚠️ Video orders are temporarily unavailable. Please try again later.")
+        else:
+            await message.answer("⚠️ Video order chat is not configured yet. Contact bot admin.")
+        awaiting_video_order.pop(uid, None)
+        return
     # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
 
 # ---------- Фото + пресеты (с авто-рекомендацией Blink & Glow) ----------
@@ -900,6 +975,7 @@ async def on_text(message: Message):
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
     awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
 
     is_admin = (uid == ADMIN_USER_ID)
 
