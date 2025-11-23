@@ -442,7 +442,6 @@ def build_admin_summary() -> str:
 # ---------- РЕФЕРАЛЬНАЯ МАГИЯ ----------
 
 def referral_info_text(lang: str) -> str:
-    # можно оставить как есть, это текст ПОСЛЕ анимации
     ua = (
         "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
         "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
@@ -1157,7 +1156,7 @@ async def on_text(message: Message):
 
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
-       awaiting_video_order.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
         prompt_texts = {
             "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
             "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
