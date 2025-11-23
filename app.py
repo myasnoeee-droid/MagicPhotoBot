@@ -49,7 +49,6 @@ INTRO_VIDEO_FILE_ID = os.getenv(
 )
 
 # Чат для заявок на видео "под ключ"
-# Можно переопределить через .env ORDER_CHAT_ID, но по умолчанию твой чат:
 ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", "-5085880330"))
 
 if not BOT_TOKEN:
@@ -105,6 +104,7 @@ def tr_lang(lang: str, key: str) -> str:
 
 
 def lang_choice_keyboard() -> InlineKeyboardMarkup:
+    # Магический экран выбора языка
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -120,7 +120,6 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
 
 # ---------- Пресеты (региональные) ----------
 
-# Базовые EN-промпты (fallback для всех)
 PRESET_PROMPTS_BASE = [
     "natural smile, slight head turn right, photorealistic",                     # 0 Natural smile
     "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 1 Cinematic look
@@ -133,7 +132,6 @@ PRESET_PROMPTS_BASE = [
     "editorial portrait, soft bounce light, slight head movement, elegant expression"  # 8 Editorial portrait
 ]
 
-# Языковые вариации промптов (все на EN, но адаптированы под регион)
 PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
     "ua": PRESET_PROMPTS_BASE,
     "en": PRESET_PROMPTS_BASE,
@@ -169,7 +167,6 @@ def get_preset_prompt(lang: str, idx: int) -> str:
     return PRESET_PROMPTS_BASE[0]
 
 
-# Локализованные подписи кнопок пресетов
 PRESET_TITLES: Dict[str, list[str]] = {
     "en": [
         "😊 Natural smile",
@@ -217,9 +214,8 @@ PRESET_TITLES: Dict[str, list[str]] = {
     ],
 }
 
-# pending_* — состояние диалога
-pending_photo: Dict[int, Dict[str, Any]] = {}   # user_id -> {"file_id":..., "caption":..., "is_old_like": bool}
-pending_choice: Dict[int, Dict[str, Any]] = {}  # user_id -> {"type": "preset"/"caption", "idx": int | None}
+pending_photo: Dict[int, Dict[str, Any]] = {}
+pending_choice: Dict[int, Dict[str, Any]] = {}
 
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
@@ -235,7 +231,6 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
     random_text = random_labels.get(lang, "✨ Random magic")
 
     rows: list[list[InlineKeyboardButton]] = []
-
     rows.append(
         [InlineKeyboardButton(text=random_text, callback_data="preset:random")]
     )
@@ -304,22 +299,16 @@ PACKS = {
     "pack_10": ("10 animations", 10, 500),
     "pack_25": ("25 animations", 25, 1000),
 }
-user_credits: Dict[int, int] = {}  # user_id -> credits
+user_credits: Dict[int, int] = {}
 
 # ----- Рефералка -----
-ref_inviter: Dict[int, int] = {}         # invited_id -> inviter_id
-ref_count: Dict[int, int] = {}           # inviter_id -> count
-ref_stars_balance: Dict[int, int] = {}   # inviter_id -> accumulated Stars
+ref_inviter: Dict[int, int] = {}
+ref_count: Dict[int, int] = {}
+ref_stars_balance: Dict[int, int] = {}
 
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура для /buy и кнопки «Купить генерации».
-    Популярный пакет (3 оживления) — первым, с 🔥.
-    Каждая кнопка в отдельной строке.
-    """
     lang = get_lang(uid)
-
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
     buttons = [
@@ -353,10 +342,9 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     """
     Клавиатура, которая показывается под готовым видео.
-    Пакеты + кнопка «Поделиться ботом» (с реф-ссылкой).
+    Пакеты + кнопка «Поделиться» (с реф-ссылкой).
     """
     lang = get_lang(uid)
-
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
     buy_buttons = [
@@ -383,10 +371,10 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     ]
 
     share_labels = {
-        "ua": "📤 Поділитися ботом",
-        "en": "📤 Share this bot",
-        "es": "📤 Compartir el bot",
-        "pt": "📤 Compartilhar o bot",
+        "ua": "📤 Поділитися",
+        "en": "📤 Share",
+        "es": "📤 Compartir",
+        "pt": "📤 Compartilhar",
     }
     ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
     share_button = InlineKeyboardButton(
@@ -465,8 +453,8 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
 
 # ---------- Поддержка и заявки на видео ----------
 
-awaiting_support: Dict[int, bool] = {}       # user_id -> waiting for support message
-awaiting_video_order: Dict[int, bool] = {}   # user_id -> waiting for video brief
+awaiting_support: Dict[int, bool] = {}
+awaiting_video_order: Dict[int, bool] = {}
 
 # ---------- АДМИНСКИЕ СЧЁТЧИКИ И TEST MODE ----------
 
@@ -595,7 +583,7 @@ async def on_start(message: Message):
 
     uid = message.from_user.id if message.from_user else 0
 
-    # --- разбор реферального payload ---
+    # разбор реферального payload
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1] if len(parts) > 1 else ""
     if payload.startswith("ref_"):
@@ -604,9 +592,8 @@ async def on_start(message: Message):
             await register_referral(uid, inviter_id)
         except ValueError:
             pass
-    # --- конец блока рефералки ---
 
-    # Если язык ещё не выбран — отправляем видео + приветствие + кнопки языков
+    # язык ещё не выбран — показываем заставку + выбор языка
     if uid not in user_lang:
         caption = (
             "Magl’sBot вітає тебе, мандрівнику-магу!\n\n"
@@ -628,7 +615,7 @@ async def on_start(message: Message):
         await message.answer(caption, reply_markup=lang_choice_keyboard())
         return
 
-    # Если язык уже выбран — опционально показываем видео и сразу главное меню
+    # язык уже выбран — можно опционально показать видео и меню
     if INTRO_VIDEO_FILE_ID:
         try:
             await message.answer_video(
@@ -968,7 +955,7 @@ async def on_text(message: Message):
         return
     # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
 
-# ---------- Фото + пресеты (с авто-рекомендацией Blink & Glow) ----------
+# ---------- Фото + пресеты ----------
 
 @dp.message(F.photo)
 async def on_photo(message: Message):
@@ -1101,7 +1088,7 @@ async def on_preset(query: CallbackQuery):
     if desc:
         header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
     else:
-        header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
+        header_text = f"🎨 {title_txt}\n\n{confirm_line}"
 
     await query.message.edit_text(header_text, reply_markup=confirm_preset_keyboard(uid))
     await query.answer()
@@ -1170,10 +1157,19 @@ async def on_confirm_ok(query: CallbackQuery):
         tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
         await download_file(video_url, tmp_path)
 
+        # Локализованный watermark в подписи
+        wm_map = {
+            "ua": "\n\n🔖 Зроблено в Magl’sBot",
+            "en": "\n\n🔖 Made with Magl’sBot",
+            "es": "\n\n🔖 Hecho en Magl’sBot",
+            "pt": "\n\n🔖 Feito no Magl’sBot",
+        }
+        watermark_suffix = wm_map.get(lang, "\n\n🔖 Made with Magl’sBot")
+
         await bot.send_video(
             chat_id=query.message.chat.id,
             video=FSInputFile(tmp_path),
-            caption=tr(uid, "done"),
+            caption=tr(uid, "done") + watermark_suffix,
             reply_markup=buy_cta_keyboard(uid),
         )
 
