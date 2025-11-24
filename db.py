@@ -5,20 +5,27 @@ from datetime import datetime, timezone
 
 import asyncpg
 
+# URL БД берём из переменной окружения
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    # на Railway ты должен был завести переменную DATABASE_URL = ${{ Postgres.DATABASE_URL }}
+    # На Railway переменная должна быть: DATABASE_URL = ${{ Postgres.DATABASE_URL }}
     raise RuntimeError("DATABASE_URL is not set")
 
 _pool: Optional[asyncpg.Pool] = None
+
+
+# ---------- ВСПОМОГАТЕЛЬНОЕ ----------
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # ---------- ИНИЦИАЛИЗАЦИЯ ----------
 
 async def init_db():
     """
-    Создаёт пул соединений и на всякий случай выполняет CREATE TABLE IF NOT EXISTS.
-    Если ты уже создавал таблицы руками — второй раз просто ничего не изменится.
+    Создаёт пул соединений и выполняет CREATE TABLE IF NOT EXISTS для всех таблиц.
+    Если таблицы уже созданы — ничего страшного, второй раз просто не изменит схему.
     """
     global _pool
     if _pool is not None:
@@ -73,10 +80,6 @@ async def init_db():
     """
     async with _pool.acquire() as conn:
         await conn.execute(ddl)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 # ---------- USERS (known_users, user_lang) ----------
@@ -143,41 +146,37 @@ async def get_all_user_ids() -> List[int]:
 
     async with _pool.acquire() as conn:
         rows = await conn.fetch("SELECT tg_id FROM users")
-        return [r["tg_id"] for r in rows]
+        return [int(r["tg_id"]) for r in rows]
 
 
-# ---------- REFERRALS ----------
+# ---------- REFERRALS (кто кого пригласил) ----------
 
-async def add_referral(inviter_id: int, invited_id: int) -> bool:
+async def add_referral(inviter_id: int, invited_id: int) -> None:
     """
-    Пытается записать факт, что inviter пригласил invited.
-    Возвращает True, если новая запись создана, False — если уже было.
+    Записывает факт приглашения (если ещё нет записи).
+    Если invited_id уже кем-то приглашён — просто ничего не делает.
     """
     global _pool
     assert _pool is not None
 
     if inviter_id == invited_id:
-        return False
+        return
 
     async with _pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT 1 FROM referrals WHERE invited_id = $1",
-            invited_id,
-        )
-        if row:
-            return False
-
         await conn.execute(
             """
             INSERT INTO referrals (inviter_id, invited_id)
             VALUES ($1, $2)
+            ON CONFLICT (invited_id) DO NOTHING
             """,
             inviter_id, invited_id,
         )
-        return True
 
 
-async def count_referrals(inviter_id: int) -> int:
+async def get_referral_count(inviter_id: int) -> int:
+    """
+    Сколько людей привёл данный inviter.
+    """
     global _pool
     assert _pool is not None
 
@@ -190,6 +189,9 @@ async def count_referrals(inviter_id: int) -> int:
 
 
 async def get_inviter(invited_id: int) -> Optional[int]:
+    """
+    Возвращает inviter_id для invited_id, если он есть.
+    """
     global _pool
     assert _pool is not None
 
@@ -201,11 +203,12 @@ async def get_inviter(invited_id: int) -> Optional[int]:
         return int(row["inviter_id"]) if row else None
 
 
-# ---------- CREDITS (user_credits) ----------
+# ---------- CREDITS (покупки и остаток) ----------
 
 async def add_credits(user_id: int, amount: int, reason: str) -> None:
     """
-    Записываем транзакцию по кредитам. Баланс будем считать суммой по пользователю.
+    Записываем транзакцию по кредитам. Баланс считаем суммой amount по пользователю.
+    amount может быть отрицательным при списании.
     """
     global _pool
     assert _pool is not None
@@ -272,11 +275,12 @@ async def increment_free_usage(user_id: int) -> None:
         )
 
 
-# ---------- REF_STARS (баланс звёзд у реферала) ----------
+# ---------- REF_STARS (реферальные Stars) ----------
 
 async def add_ref_stars(user_id: int, stars: int) -> None:
     """
-    Прибавить к пользователю реферальные Stars.
+    Прибавить к пользователю реферальные Stars
+    (total_stars и stars_balance увеличиваются на stars).
     """
     global _pool
     assert _pool is not None
@@ -351,7 +355,7 @@ async def spend_ref_stars(user_id: int, stars: int) -> bool:
         return True
 
 
-# ---------- REF_PUSHES (last_ref_push) ----------
+# ---------- REF_PUSHES (когда последний пуш по рефералке) ----------
 
 async def get_last_ref_push(user_id: int) -> Optional[datetime]:
     global _pool
