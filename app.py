@@ -25,8 +25,9 @@ from aiogram.client.default import DefaultBotProperties
 
 from dotenv import load_dotenv
 
-from limiter import FreeUsageLimiter
+# ЛОКАЛЬНЫЕ МОДУЛИ
 from processing import animate_photo_via_replicate, download_file
+import db  # наш модуль работы с PostgreSQL
 
 load_dotenv()
 
@@ -63,13 +64,12 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
-limiter = FreeUsageLimiter(max_free=MAX_FREE_ANIMS_PER_USER)
 
 # ---------- i18n через JSON-файлы ----------
 LOCALE_CODES = ("ua", "en", "es", "pt")
 DEFAULT_LANG = "en"
 LOCALES: Dict[str, Dict[str, Any]] = {}
-user_lang: Dict[int, str] = {}  # user_id -> "ua"/"en"/"es"/"pt"
+user_lang: Dict[int, str] = {}  # кэш языка: user_id -> "ua"/"en"/"es"/"pt"
 
 
 def load_locales():
@@ -93,6 +93,7 @@ if DEFAULT_LANG not in LOCALES:
 
 
 def get_lang(uid: int) -> str:
+    # Берём из кэша, при старте /lang мы его наполняем из БД
     return user_lang.get(uid, DEFAULT_LANG)
 
 
@@ -221,15 +222,23 @@ PRESET_TITLES: Dict[str, list[str]] = {
 pending_photo: Dict[int, Dict[str, Any]] = {}
 pending_choice: Dict[int, Dict[str, Any]] = {}
 
-# ---------- Пользователи и пуши ----------
+# ---------- Пользователи и пуши (теперь через БД) ----------
 
-known_users: set[int] = set()
-last_ref_push: Dict[int, float] = {}  # user_id -> last push ts
-
-
-def register_user(uid: int):
-    if uid and uid > 0:
-        known_users.add(uid)
+async def register_user(uid: int):
+    """
+    Раньше просто добавляли в set, теперь:
+    - гарантируем запись в таблице users
+    - кэш языка подгружаем при необходимости
+    """
+    if not uid or uid <= 0:
+        return
+    # Если язык ещё не в кэше — пробуем подтянуть из БД
+    if uid not in user_lang:
+        lang = await db.get_user_lang(uid)
+        if lang:
+            user_lang[uid] = lang
+    # Если и так нет — создадим в БД с дефолтным языком
+    await db.ensure_user(uid, user_lang.get(uid, DEFAULT_LANG))
 
 
 def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
@@ -313,14 +322,10 @@ PACKS = {
     "pack_10": ("10 animations", 10, 500),
     "pack_25": ("25 animations", 25, 1000),
 }
-user_credits: Dict[int, int] = {}
 
-# ----- Рефералка -----
-ref_inviter: Dict[int, int] = {}        # invited_id -> inviter_id
-ref_count: Dict[int, int] = {}          # inviter_id -> count
-ref_stars_balance: Dict[int, int] = {}  # остаток Stars, не конвертированных
-ref_stars_total: Dict[int, int] = {}    # суммарно начисленных Stars за всё время (5%)
-payer_users: set[int] = set()           # кто хоть раз платил (покупал Stars)
+# Кэш кредитов только для админ-статистики и быстрых отображений,
+# БД — источник истины
+user_credits: Dict[int, int] = {}
 
 # ---------- Главное меню (ReplyKeyboard) ----------
 
@@ -419,21 +424,39 @@ def admin_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def build_admin_summary() -> str:
+async def build_admin_summary() -> str:
+    """
+    Часть статистики — по кэшу user_credits, часть — без БД.
+    Если нужно, потом перенесём сюда агрегаты из db.py.
+    """
     paid_users = [uid for uid, c in user_credits.items() if c > 0]
     total_paid_credits = sum(user_credits.values())
-    free_users_count = limiter.users_count()
-    free_used_total = limiter.total_count()
+
+    # free usage через БД: количество пользователей и суммарное использования
+    try:
+        # маленький трюк: получим всех юзеров и просуммируем free_used
+        user_ids = await db.get_all_user_ids()
+        free_users_count = 0
+        free_used_total = 0
+        for uid in user_ids:
+            fu = await db.get_free_usage(uid)
+            if fu > 0:
+                free_users_count += 1
+                free_used_total += fu
+    except Exception as e:
+        logger.warning("Failed free usage stats: %s", e)
+        free_users_count = "?"
+        free_used_total = "?"
 
     lines = []
     lines.append("🛠 <b>Admin Panel</b>")
     lines.append("")
     lines.append(f"🧪 Test mode: <b>{'ON' if TEST_MODE else 'OFF'}</b>")
     lines.append("")
-    lines.append(f"💳 Users with paid credits: <b>{len(paid_users)}</b>")
-    lines.append(f"💰 Total paid credits: <b>{total_paid_credits}</b>")
-    lines.append(f"🆓 Free users count: <b>{free_users_count}</b>")
-    lines.append(f"🆓 Free animations used: <b>{free_used_total}</b>")
+    lines.append(f"💳 Users with paid credits (seen in cache): <b>{len(paid_users)}</b>")
+    lines.append(f"💰 Total paid credits (cache): <b>{total_paid_credits}</b>")
+    lines.append(f"🆓 Free users count (db): <b>{free_users_count}</b>")
+    lines.append(f"🆓 Free animations used (db): <b>{free_used_total}</b>")
     lines.append("")
     lines.append(f"🎞 Generations: success=<b>{gen_success}</b>, fail=<b>{gen_fail}</b>")
     lines.append("")
@@ -517,12 +540,14 @@ def get_ref_main_text(lang: str) -> str:
     return ""
 
 
-def build_referral_stats_text(uid: int) -> str:
+async def build_referral_stats_text(uid: int) -> str:
     lang = get_lang(uid)
-    invited = ref_count.get(uid, 0)
+
+    invited = await db.get_referral_count(uid)
     free_from_invites = invited // 3
-    pending_stars = ref_stars_balance.get(uid, 0)
-    credits = user_credits.get(uid, 0)
+
+    total_stars, stars_balance = await db.get_ref_stars(uid)
+    credits_balance = await db.get_credits_balance(uid)
 
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
@@ -533,8 +558,8 @@ def build_referral_stats_text(uid: int) -> str:
             "",
             f"👥 Запрошено друзів: <b>{invited}</b>",
             f"🎁 Безкоштовних оживлень за друзів (накопичено всього): <b>{free_from_invites}</b>",
-            f"⭐ Накопичено реферальних Stars (ще не конвертовано): <b>{pending_stars}</b>",
-            f"💰 Поточний баланс оживлень: <b>{credits}</b>",
+            f"⭐ Накопичено реферальних Stars (ще не конвертовано): <b>{stars_balance}</b>",
+            f"💰 Поточний баланс оживлень: <b>{credits_balance}</b>",
         ]
         return "\n".join(lines)
 
@@ -544,8 +569,8 @@ def build_referral_stats_text(uid: int) -> str:
             "",
             f"👥 Friends invited: <b>{invited}</b>",
             f"🎁 Free animations from invites (total accrued): <b>{free_from_invites}</b>",
-            f"⭐ Referral Stars accumulated (not yet converted): <b>{pending_stars}</b>",
-            f"💰 Current animation balance: <b>{credits}</b>",
+            f"⭐ Referral Stars accumulated (not yet converted): <b>{stars_balance}</b>",
+            f"💰 Current animation balance: <b>{credits_balance}</b>",
         ]
         return "\n".join(lines)
 
@@ -555,8 +580,8 @@ def build_referral_stats_text(uid: int) -> str:
             "",
             f"👥 Amigos invitados: <b>{invited}</b>",
             f"🎁 Animaciones gratis por referidos (acumuladas): <b>{free_from_invites}</b>",
-            f"⭐ Stars de referidos acumuladas (sin convertir): <b>{pending_stars}</b>",
-            f"💰 Balance actual de animaciones: <b>{credits}</b>",
+            f"⭐ Stars de referidos acumuladas (sin convertir): <b>{stars_balance}</b>",
+            f"💰 Balance actual de animaciones: <b>{credits_balance}</b>",
         ]
         return "\n".join(lines)
 
@@ -566,8 +591,8 @@ def build_referral_stats_text(uid: int) -> str:
             "",
             f"👥 Amigos indicados: <b>{invited}</b>",
             f"🎁 Animações grátis por indicações (acumuladas): <b>{free_from_invites}</b>",
-            f"⭐ Stars de indicação acumuladas (ainda não convertidas): <b>{pending_stars}</b>",
-            f"💰 Saldo atual de animações: <b>{credits}</b>",
+            f"⭐ Stars de indicação acumuladas (ainda não convertidas): <b>{stars_balance}</b>",
+            f"💰 Saldo atual de animações: <b>{credits_balance}</b>",
         ]
         return "\n".join(lines)
 
@@ -636,29 +661,28 @@ def get_partner_level(total_invited: int, lang: str) -> str:
     return en
 
 
-def build_partner_dashboard_text(uid: int) -> str:
+async def build_partner_dashboard_text(uid: int) -> str:
     lang = get_lang(uid)
 
-    invited_users = [u for u, inv in ref_inviter.items() if inv == uid]
+    invited_users = await db.get_invited_users(uid)
     total = len(invited_users)
 
     active = 0
     payers = 0
-    free_usage = getattr(limiter, "_usage", {})
 
     for u in invited_users:
-        used_free = False
-        if isinstance(free_usage, dict):
-            used_free = free_usage.get(u, 0) > 0
+        free_used = await db.get_free_usage(u)
+        credits_u = await db.get_credits_balance(u)
+        has_credits = credits_u > 0
 
-        has_credits = user_credits.get(u, 0) > 0
-        if used_free or has_credits or (u in payer_users):
+        if free_used > 0 or has_credits:
             active += 1
-        if u in payer_users:
+        if has_credits:
             payers += 1
 
-    bonus = ref_stars_total.get(uid, 0)
-    total_users = len(known_users)
+    total_stars, _balance = await db.get_ref_stars(uid)
+    all_ids = await db.get_all_user_ids()
+    total_users = len(all_ids)
 
     cr_active = (active / total * 100) if total else 0.0
     cr_payers = (payers / total * 100) if total else 0.0
@@ -679,7 +703,7 @@ def build_partner_dashboard_text(uid: int) -> str:
             f"👥 Запрошено користувачів: <b>{total}</b>\n"
             f"✨ Оживили фото: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
             f"⭐ Купили Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
-            f"💰 Отримано бонусних Stars: <b>{bonus}</b>\n\n"
+            f"💰 Отримано бонусних Stars: <b>{total_stars}</b>\n\n"
             f"🌍 Учасників бота всього: <b>{total_users}</b>\n\n"
             "📌 Поширюй цю лінку в сторіс, постах та чатах — "
             "і отримуй магічні винагороди за кожного активного мага 🪄"
@@ -696,7 +720,7 @@ def build_partner_dashboard_text(uid: int) -> str:
             f"👥 Users invited: <b>{total}</b>\n"
             f"✨ Did at least one animation: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
             f"⭐ Bought Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
-            f"💰 Bonus Stars earned: <b>{bonus}</b>\n\n"
+            f"💰 Bonus Stars earned: <b>{total_stars}</b>\n\n"
             f"🌍 Total bot users: <b>{total_users}</b>\n\n"
             "📌 Share this link in your stories, posts and chats — "
             "and earn magic rewards for each active mage 🪄"
@@ -713,7 +737,7 @@ def build_partner_dashboard_text(uid: int) -> str:
             f"👥 Usuarios invitados: <b>{total}</b>\n"
             f"✨ Animaron al menos una foto: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
             f"⭐ Compraron Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
-            f"💰 Stars de bono recibidas: <b>{bonus}</b>\n\n"
+            f"💰 Stars de bono recibidas: <b>{total_stars}</b>\n\n"
             f"🌍 Usuarios totales del bot: <b>{total_users}</b>\n\n"
             "📌 Comparte este enlace en stories, posts y chats — "
             "y gana recompensas mágicas por cada mago activo 🪄"
@@ -730,7 +754,7 @@ def build_partner_dashboard_text(uid: int) -> str:
             f"👥 Usuários indicados: <b>{total}</b>\n"
             f"✨ Fizeram ao menos uma animação: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
             f"⭐ Compraram Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
-            f"💰 Stars de bônus recebidas: <b>{bonus}</b>\n\n"
+            f"💰 Stars de bônus recebidas: <b>{total_stars}</b>\n\n"
             f"🌍 Usuários totais do bot: <b>{total_users}</b>\n\n"
             "📌 Compartilhe este link em stories, posts e chats — "
             "e ganhe recompensas mágicas por cada mago ativo 🪄"
@@ -794,7 +818,7 @@ def partner_keyboard(uid: int) -> InlineKeyboardMarkup:
         ]
     )
 
-# ---------- Пуши рефералок ----------
+# ---------- Пуши рефералок (через БД) ----------
 
 def get_ref_push_text(lang: str, variant: int) -> str:
     if lang not in ("ua", "en", "es", "pt"):
@@ -885,18 +909,28 @@ def get_ref_bonus_text(lang: str, bonus_stars: int, gained_credits: int, credits
 
 
 async def register_referral(new_user_id: int, inviter_id: int):
+    """
+    Раньше работало через словари ref_inviter/ref_count.
+    Теперь:
+    - записываем в таблицу referrals (если ещё нет);
+    - каждые 3 приглашённых даём +1 кредит;
+    - шлём уведомление магу.
+    """
     if new_user_id == inviter_id:
         return
-    if new_user_id in ref_inviter:
+
+    created = await db.add_referral(inviter_id=inviter_id, invited_id=new_user_id)
+    if not created:
         return
 
-    ref_inviter[new_user_id] = inviter_id
-    ref_count[inviter_id] = ref_count.get(inviter_id, 0) + 1
-    count = ref_count[inviter_id]
+    await register_user(inviter_id)
 
+    count = await db.get_referral_count(inviter_id)
     earned_free = 1 if (count % 3 == 0) else 0
     if earned_free:
-        user_credits[inviter_id] = user_credits.get(inviter_id, 0) + earned_free
+        await db.change_credits(inviter_id, 1, "referral_3_friends")
+        # обновим кэш
+        user_credits[inviter_id] = await db.get_credits_balance(inviter_id)
 
     try:
         lang = get_lang(inviter_id)
@@ -907,7 +941,7 @@ async def register_referral(new_user_id: int, inviter_id: int):
         if earned_free:
             msg_lines.append(
                 f"За кожні 3 запрошених — +1 безкоштовне оживлення.\n"
-                f"🎁 Ти щойно отримав +1! Зараз у тебе {user_credits[inviter_id]} кредитів."
+                f"🎁 Ти щойно отримав +1! Зараз у тебе {user_credits.get(inviter_id, 0)} кредитів."
             )
         else:
             left = 3 - (count % 3)
@@ -926,26 +960,24 @@ async def referral_reminder_worker():
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
             now = time.time()
 
-            for uid in list(known_users):
+            user_ids = await db.get_all_user_ids()
+            for uid in user_ids:
                 if uid <= 0:
                     continue
 
-                last = last_ref_push.get(uid, 0)
-                if now - last < PUSH_INTERVAL_SECONDS * 0.9:
+                last_dt = await db.get_last_ref_push(uid)
+                last_ts = last_dt.timestamp() if last_dt else 0
+                if now - last_ts < PUSH_INTERVAL_SECONDS * 0.9:
                     continue
 
-                count = ref_count.get(uid, 0)
+                count = await db.get_referral_count(uid)
                 if count <= 0:
                     friends_to_next = 3
                 else:
                     mod = count % 3
                     friends_to_next = 3 if mod == 0 else (3 - mod)
 
-                if friends_to_next == 1:
-                    variant = 2
-                else:
-                    variant = 1
-
+                variant = 2 if friends_to_next == 1 else 1
                 lang = get_lang(uid)
                 text = get_ref_push_text(lang, variant)
                 if not text:
@@ -953,7 +985,7 @@ async def referral_reminder_worker():
 
                 try:
                     await bot.send_message(uid, text)
-                    last_ref_push[uid] = now
+                    await db.set_last_ref_push(uid)
                     logger.info(f"Sent referral push (variant={variant}) to {uid}")
                 except Exception as e:
                     logger.warning(f"Failed to send referral push to {uid}: {e}")
@@ -972,7 +1004,7 @@ async def on_start(message: Message):
         return
 
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
 
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1] if len(parts) > 1 else ""
@@ -980,9 +1012,15 @@ async def on_start(message: Message):
         try:
             inviter_id = int(payload[4:])
             await register_referral(uid, inviter_id)
-            register_user(inviter_id)
+            await register_user(inviter_id)
         except ValueError:
             pass
+
+    # подтянем язык из БД, если его нет в кэше
+    if uid not in user_lang:
+        stored_lang = await db.get_user_lang(uid)
+        if stored_lang:
+            user_lang[uid] = stored_lang
 
     if uid not in user_lang:
         caption = (
@@ -1005,6 +1043,7 @@ async def on_start(message: Message):
         await message.answer(caption, reply_markup=lang_choice_keyboard())
         return
 
+    # Язык уже известен — просто приветствуем и кидаем меню
     if INTRO_VIDEO_FILE_ID:
         try:
             await message.answer_video(
@@ -1022,13 +1061,15 @@ async def on_start(message: Message):
 @dp.callback_query(F.data.startswith("lang:"))
 async def on_lang_set(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
+    await register_user(uid)
     _, code = query.data.split(":", 1)
     if code not in LOCALES:
         await query.answer("Language not available", show_alert=True)
         return
 
     user_lang[uid] = code
+    await db.set_user_lang(uid, code)
+
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
@@ -1050,30 +1091,32 @@ async def on_lang_set(query: CallbackQuery):
 @dp.message(Command("pricing"))
 async def on_pricing(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     await message.answer(tr(uid, "pricing"))
 
 
 @dp.message(Command("buy"))
 async def on_buy(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
 
 
 @dp.message(Command("balance"))
 async def on_balance(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
+    balance = await db.get_credits_balance(uid)
+    user_credits[uid] = balance
     await message.answer(
-        tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
+        tr(uid, "balance_title").format(credits=balance)
     )
 
 
 @dp.message(Command("menu"))
 async def on_menu(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
     await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
@@ -1082,7 +1125,7 @@ async def on_menu(message: Message):
 @dp.message(Command("ref"))
 async def on_ref_command(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     lang = get_lang(uid)
     await message.answer(
         get_ref_main_text(lang),
@@ -1093,8 +1136,8 @@ async def on_ref_command(message: Message):
 @dp.message(Command("partner"))
 async def on_partner_command(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
-    text = build_partner_dashboard_text(uid)
+    await register_user(uid)
+    text = await build_partner_dashboard_text(uid)
     await message.answer(text, reply_markup=partner_keyboard(uid))
 
 # ---------- /admin и admin callbacks ----------
@@ -1102,11 +1145,11 @@ async def on_partner_command(message: Message):
 @dp.message(Command("admin"))
 async def on_admin(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     if uid != ADMIN_USER_ID:
         await message.answer("⛔️ You are not an admin.")
         return
-    text = build_admin_summary()
+    text = await build_admin_summary()
     await message.answer(text, reply_markup=admin_keyboard())
 
 
@@ -1121,32 +1164,28 @@ async def on_admin_action(query: CallbackQuery):
     global TEST_MODE
 
     if action == "stats":
-        text = build_admin_summary()
+        text = await build_admin_summary()
         await query.message.edit_text(text, reply_markup=admin_keyboard())
         await query.answer("Stats updated")
         return
 
     if action == "users":
-        all_ids = set(user_credits.keys())
-        try:
-            free_usage = getattr(limiter, "_usage", {})
-            all_ids.update(free_usage.keys())
-        except Exception:
-            free_usage = {}
-        if not all_ids:
+        # берём всех пользователей из БД и показываем кратко
+        user_ids = await db.get_all_user_ids()
+        if not user_ids:
             await query.message.edit_text("👥 No users yet.", reply_markup=admin_keyboard())
             await query.answer()
             return
 
         lines = ["👥 <b>Users snapshot</b> (top 50):"]
-        for i, u in enumerate(sorted(all_ids)):
+        for i, u in enumerate(sorted(user_ids)):
             if i >= 50:
                 lines.append("… (truncated)")
                 break
-            lang_u = get_lang(u)
-            paid = user_credits.get(u, 0)
-            fu = free_usage.get(u, 0) if isinstance(free_usage, dict) else "?"
-            lines.append(f"• id={u}, lang={lang_u}, paid={paid}, free_used={fu}")
+            lang_u = await db.get_user_lang(u) or DEFAULT_LANG
+            paid = await db.get_credits_balance(u)
+            free_used = await db.get_free_usage(u)
+            lines.append(f"• id={u}, lang={lang_u}, paid={paid}, free_used={free_used}")
         text = "\n".join(lines)
         await query.message.edit_text(text, reply_markup=admin_keyboard())
         await query.answer("Users list")
@@ -1155,7 +1194,7 @@ async def on_admin_action(query: CallbackQuery):
     if action == "test_toggle":
         TEST_MODE = not TEST_MODE
         status = "ON" if TEST_MODE else "OFF"
-        text = build_admin_summary()
+        text = await build_admin_summary()
         await query.message.edit_text(text, reply_markup=admin_keyboard())
         await query.answer(f"Test mode {status}", show_alert=True)
         return
@@ -1242,7 +1281,7 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
 @dp.callback_query(F.data.startswith("buy:"))
 async def on_buy_click(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
+    await register_user(uid)
     code = query.data.split(":", 1)[1]
     pack = PACKS.get(code)
     if not pack:
@@ -1272,8 +1311,7 @@ async def on_checkout(pre: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def on_payment(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
-    payer_users.add(uid)
+    await register_user(uid)
     sp = message.successful_payment
     payload = sp.invoice_payload
     pack = PACKS.get(payload)
@@ -1281,33 +1319,43 @@ async def on_payment(message: Message):
         await message.answer("Payment received, but pack not recognized. Contact admin.")
         return
     title, credits, amount = pack
-    user_credits[uid] = user_credits.get(uid, 0) + credits
+
+    # записываем покупку в БД
+    await db.change_credits(uid, credits, f"buy_{payload}")
+    balance = await db.get_credits_balance(uid)
+    user_credits[uid] = balance
 
     global pack_stats
     if payload in pack_stats:
         pack_stats[payload] += 1
 
-    inviter_id = ref_inviter.get(uid)
+    # реферальный бонус 5% Stars
+    inviter_id = await db.get_inviter(uid)
     if inviter_id:
-        register_user(inviter_id)
-        total_stars = sp.total_amount
+        await register_user(inviter_id)
+        total_stars = sp.total_amount  # сколько Stars потрачено
         bonus_stars = int(total_stars * 0.05)
         if bonus_stars > 0:
-            ref_stars_total[inviter_id] = ref_stars_total.get(inviter_id, 0) + bonus_stars
-            ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
+            total_stars_sum, stars_balance = await db.add_ref_stars(inviter_id, bonus_stars)
 
             gained_credits = 0
-            while ref_stars_balance[inviter_id] >= 60:
-                ref_stars_balance[inviter_id] -= 60
-                user_credits[inviter_id] = user_credits.get(inviter_id, 0) + 1
+            # конвертируем по 60 Stars => 1 кредит
+            while stars_balance >= 60:
+                stars_balance -= 60
+                await db.change_credits(inviter_id, 1, "ref_stars_convert")
                 gained_credits += 1
+
+            await db.set_ref_stars_balance(inviter_id, stars_balance)
+            inviter_balance = await db.get_credits_balance(inviter_id)
+            user_credits[inviter_id] = inviter_balance
+
             try:
                 lang_inv = get_lang(inviter_id)
                 text = get_ref_bonus_text(
                     lang_inv,
                     bonus_stars=bonus_stars,
                     gained_credits=gained_credits,
-                    credits_balance=user_credits.get(inviter_id, 0),
+                    credits_balance=inviter_balance,
                 )
                 await bot.send_message(inviter_id, text)
             except Exception as e:
@@ -1316,7 +1364,7 @@ async def on_payment(message: Message):
     await message.answer(
         tr(uid, "paid_ok").format(
             credits=credits,
-            balance=user_credits[uid],
+            balance=balance,
         )
     )
 
@@ -1326,7 +1374,7 @@ async def on_payment(message: Message):
 async def on_text(message: Message):
     text = message.text or ""
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
@@ -1351,8 +1399,10 @@ async def on_text(message: Message):
     if text == labels["balance"]:
         awaiting_support.pop(uid, None)
         awaiting_video_order.pop(uid, None)
+        balance = await db.get_credits_balance(uid)
+        user_credits[uid] = balance
         await message.answer(
-            tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
+            tr(uid, "balance_title").format(credits=balance)
         )
         return
 
@@ -1412,7 +1462,7 @@ async def on_text(message: Message):
     if text == labels["partner"]:
         awaiting_support.pop(uid, None)
         awaiting_video_order.pop(uid, None)
-        dash = build_partner_dashboard_text(uid)
+        dash = await build_partner_dashboard_text(uid)
         await message.answer(dash, reply_markup=partner_keyboard(uid))
         return
 
@@ -1467,7 +1517,7 @@ async def on_text(message: Message):
 @dp.callback_query(F.data == "ref:share")
 async def on_ref_share(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
+    await register_user(uid)
     lang = get_lang(uid)
     ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
     share_texts = {
@@ -1499,8 +1549,8 @@ async def on_ref_share(query: CallbackQuery):
 @dp.callback_query(F.data == "ref:stats")
 async def on_ref_stats(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
-    text = build_referral_stats_text(uid)
+    await register_user(uid)
+    text = await build_referral_stats_text(uid)
     await query.message.answer(text)
     await query.answer()
 
@@ -1509,8 +1559,8 @@ async def on_ref_stats(query: CallbackQuery):
 @dp.callback_query(F.data == "partner:reload")
 async def on_partner_reload(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
-    text = build_partner_dashboard_text(uid)
+    await register_user(uid)
+    text = await build_partner_dashboard_text(uid)
     await query.message.edit_text(text, reply_markup=partner_keyboard(uid))
     await query.answer("Оновлено!")
 
@@ -1519,14 +1569,17 @@ async def on_partner_reload(query: CallbackQuery):
 @dp.message(F.photo)
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
+    await register_user(uid)
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
     is_admin = (uid == ADMIN_USER_ID)
 
+    # Проверка лимитов: либо есть кредиты, либо ещё не исчерпан free лимит
     if not (TEST_MODE and is_admin):
-        if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
+        credits_balance = await db.get_credits_balance(uid)
+        free_used = await db.get_free_usage(uid)
+        if credits_balance <= 0 and free_used >= MAX_FREE_ANIMS_PER_USER:
             await message.answer(tr(uid, "free_used"))
             return
 
@@ -1591,7 +1644,7 @@ async def on_photo(message: Message):
 @dp.callback_query(F.data.startswith("preset:"))
 async def on_preset(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
+    await register_user(uid)
     data = query.data.split(":", 1)[1]
     info = pending_photo.get(uid)
 
@@ -1659,7 +1712,7 @@ async def on_preset(query: CallbackQuery):
 @dp.callback_query(F.data == "confirm:back")
 async def on_confirm_back(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
+    await register_user(uid)
     info = pending_photo.get(uid)
     if not info:
         await query.message.edit_text(tr(uid, "done"))
@@ -1678,7 +1731,7 @@ async def on_confirm_back(query: CallbackQuery):
 @dp.callback_query(F.data == "confirm:ok")
 async def on_confirm_ok(query: CallbackQuery):
     uid = query.from_user.id
-    register_user(uid)
+    await register_user(uid)
     info = pending_photo.get(uid)
     choice = pending_choice.get(uid)
     if not info or not choice:
@@ -1687,7 +1740,11 @@ async def on_confirm_ok(query: CallbackQuery):
         return
 
     is_admin = (uid == ADMIN_USER_ID)
-    had_paid = user_credits.get(uid, 0) > 0
+
+    # баланс кредитов до генерации
+    credits_before = await db.get_credits_balance(uid)
+    user_credits[uid] = credits_before
+    had_paid = credits_before > 0
 
     lang = get_lang(uid)
     if choice["type"] == "caption":
@@ -1741,11 +1798,14 @@ async def on_confirm_ok(query: CallbackQuery):
             text=ref_text
         )
 
+        # Списание/учёт бесплатного использования
         if not (TEST_MODE and is_admin):
-            if had_paid and user_credits.get(uid, 0) > 0:
-                user_credits[uid] -= 1
+            if had_paid and credits_before > 0:
+                await db.change_credits(uid, -1, "generation")
             else:
-                limiter.mark_used(uid)
+                await db.inc_free_usage(uid, 1)
+            # обновим кэш
+            user_credits[uid] = await db.get_credits_balance(uid)
 
         try:
             os.remove(tmp_path)
@@ -1763,6 +1823,7 @@ async def on_confirm_ok(query: CallbackQuery):
 # ---------- MAIN ----------
 
 async def main_async():
+    await db.init_db()
     asyncio.create_task(referral_reminder_worker())
     await dp.start_polling(bot)
 
