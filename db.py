@@ -1,40 +1,28 @@
 # db.py
 import os
-import asyncpg
-from typing import Optional, Tuple, List
+from typing import Optional, List, Tuple
 from datetime import datetime, timezone
 
-# На Railway это должна быть переменная окружения DATABASE_URL
-# (скорее всего ты её ещё не настроил, поэтому НЕ падаем здесь, а проверяем внутри init_db)
+import asyncpg
+
 DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    # на Railway ты должен был завести переменную DATABASE_URL = ${{ Postgres.DATABASE_URL }}
+    raise RuntimeError("DATABASE_URL is not set")
 
 _pool: Optional[asyncpg.Pool] = None
 
 
-# ---------- ВСПОМОГАТЕЛЬНОЕ ----------
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-# ---------- ИНИЦИАЛИЗАЦИЯ БАЗЫ ----------
+# ---------- ИНИЦИАЛИЗАЦИЯ ----------
 
 async def init_db():
     """
-    Создаёт пул соединений и таблицы (если их ещё нет).
-    Можно спокойно вызывать при каждом старте бота.
+    Создаёт пул соединений и на всякий случай выполняет CREATE TABLE IF NOT EXISTS.
+    Если ты уже создавал таблицы руками — второй раз просто ничего не изменится.
     """
     global _pool
     if _pool is not None:
         return
-
-    if not DATABASE_URL:
-        # Пока просто логическая ошибка, чтобы было понятно в логах,
-        # но модуль сам по себе больше не падает при импортe.
-        raise RuntimeError(
-            "DATABASE_URL is not set. "
-            "Зайди в Railway → твой Postgres → Variables и прокинь DATABASE_URL в сервис бота."
-        )
 
     _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
 
@@ -62,29 +50,33 @@ async def init_db():
     );
 
     CREATE TABLE IF NOT EXISTS usage (
-        id          SERIAL PRIMARY KEY,
-        user_id     BIGINT NOT NULL UNIQUE,
-        free_used   INT NOT NULL DEFAULT 0,
+        id           SERIAL PRIMARY KEY,
+        user_id      BIGINT NOT NULL UNIQUE,
+        free_used    INT NOT NULL DEFAULT 0,
         last_used_at TIMESTAMPTZ
     );
 
     CREATE TABLE IF NOT EXISTS ref_stars (
-        id              SERIAL PRIMARY KEY,
-        user_id         BIGINT NOT NULL UNIQUE,
-        total_stars     BIGINT NOT NULL DEFAULT 0,
-        stars_balance   BIGINT NOT NULL DEFAULT 0,
-        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        id            SERIAL PRIMARY KEY,
+        user_id       BIGINT NOT NULL UNIQUE,
+        total_stars   BIGINT NOT NULL DEFAULT 0,
+        stars_balance BIGINT NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS ref_pushes (
-        id              SERIAL PRIMARY KEY,
-        user_id         BIGINT NOT NULL UNIQUE,
-        last_push_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        id           SERIAL PRIMARY KEY,
+        user_id      BIGINT NOT NULL UNIQUE,
+        last_push_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     """
     async with _pool.acquire() as conn:
         await conn.execute(ddl)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # ---------- USERS (known_users, user_lang) ----------
@@ -92,24 +84,26 @@ async def init_db():
 async def ensure_user(tg_id: int, lang: str = "en") -> None:
     """
     Создаёт пользователя, если его ещё нет.
-    Если есть — только обновляет язык (если он поменялся).
+    Если есть — обновляет язык (если поменялся).
     """
     global _pool
     assert _pool is not None
 
     async with _pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT lang FROM users WHERE tg_id = $1", tg_id)
+        row = await conn.fetchrow(
+            "SELECT lang FROM users WHERE tg_id = $1",
+            tg_id,
+        )
         if row is None:
             await conn.execute(
                 "INSERT INTO users (tg_id, lang) VALUES ($1, $2)",
                 tg_id, lang,
             )
-        else:
-            if row["lang"] != lang:
-                await conn.execute(
-                    "UPDATE users SET lang = $1 WHERE tg_id = $2",
-                    lang, tg_id,
-                )
+        elif row["lang"] != lang:
+            await conn.execute(
+                "UPDATE users SET lang = $1 WHERE tg_id = $2",
+                lang, tg_id,
+            )
 
 
 async def get_user_lang(tg_id: int) -> Optional[str]:
@@ -117,7 +111,10 @@ async def get_user_lang(tg_id: int) -> Optional[str]:
     assert _pool is not None
 
     async with _pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT lang FROM users WHERE tg_id = $1", tg_id)
+        row = await conn.fetchrow(
+            "SELECT lang FROM users WHERE tg_id = $1",
+            tg_id,
+        )
         return row["lang"] if row else None
 
 
@@ -131,7 +128,7 @@ async def set_user_lang(tg_id: int, lang: str) -> None:
             INSERT INTO users (tg_id, lang)
             VALUES ($1, $2)
             ON CONFLICT (tg_id) DO UPDATE
-            SET lang = EXCLUDED.lang
+              SET lang = EXCLUDED.lang
             """,
             tg_id, lang,
         )
@@ -139,7 +136,7 @@ async def set_user_lang(tg_id: int, lang: str) -> None:
 
 async def get_all_user_ids() -> List[int]:
     """
-    Аналог known_users — вернёт всех tg_id из таблицы users.
+    Аналог known_users — вернёт все tg_id из таблицы users.
     """
     global _pool
     assert _pool is not None
@@ -149,49 +146,66 @@ async def get_all_user_ids() -> List[int]:
         return [r["tg_id"] for r in rows]
 
 
-# ---------- USAGE (free usage) ----------
+# ---------- REFERRALS ----------
 
-async def get_free_usage(user_id: int) -> int:
+async def add_referral(inviter_id: int, invited_id: int) -> bool:
     """
-    Сколько бесплатных анимаций уже использовал пользователь.
+    Пытается записать факт, что inviter пригласил invited.
+    Возвращает True, если новая запись создана, False — если уже было.
     """
+    global _pool
+    assert _pool is not None
+
+    if inviter_id == invited_id:
+        return False
+
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM referrals WHERE invited_id = $1",
+            invited_id,
+        )
+        if row:
+            return False
+
+        await conn.execute(
+            """
+            INSERT INTO referrals (inviter_id, invited_id)
+            VALUES ($1, $2)
+            """,
+            inviter_id, invited_id,
+        )
+        return True
+
+
+async def count_referrals(inviter_id: int) -> int:
     global _pool
     assert _pool is not None
 
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT free_used FROM usage WHERE user_id = $1",
-            user_id,
+            "SELECT COUNT(*) AS c FROM referrals WHERE inviter_id = $1",
+            inviter_id,
         )
-        return int(row["free_used"]) if row else 0
+        return int(row["c"]) if row else 0
 
 
-async def inc_free_usage(user_id: int, delta: int = 1) -> None:
-    """
-    Увеличить счётчик бесплатных анимаций.
-    """
+async def get_inviter(invited_id: int) -> Optional[int]:
     global _pool
     assert _pool is not None
 
-    now = _now()
     async with _pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO usage (user_id, free_used, last_used_at)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE
-            SET free_used = usage.free_used + EXCLUDED.free_used,
-                last_used_at = EXCLUDED.last_used_at
-            """,
-            user_id, delta, now,
+        row = await conn.fetchrow(
+            "SELECT inviter_id FROM referrals WHERE invited_id = $1",
+            invited_id,
         )
+        return int(row["inviter_id"]) if row else None
 
 
-# ---------- CREDITS (покупки и баланс) ----------
+# ---------- CREDITS (user_credits) ----------
 
-async def change_credits(user_id: int, amount: int, reason: str) -> None:
+async def add_credits(user_id: int, amount: int, reason: str) -> None:
     """
-    Добавляет или списывает кредиты (amount может быть отрицательным).
+    Записываем транзакцию по кредитам. Баланс будем считать суммой по пользователю.
     """
     global _pool
     assert _pool is not None
@@ -207,136 +221,39 @@ async def change_credits(user_id: int, amount: int, reason: str) -> None:
 
 
 async def get_credits_balance(user_id: int) -> int:
-    """
-    Считает текущий баланс кредитов как сумму всех операций.
-    """
     global _pool
     assert _pool is not None
 
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT COALESCE(SUM(amount), 0) AS balance FROM credits WHERE user_id = $1",
+            "SELECT COALESCE(SUM(amount), 0) AS bal FROM credits WHERE user_id = $1",
             user_id,
         )
-        return int(row["balance"]) if row else 0
+        return int(row["bal"]) if row else 0
 
 
-# ---------- REFERRALS (кто кого привёл) ----------
+# ---------- FREE USAGE (usage / limiter) ----------
 
-async def add_referral(inviter_id: int, invited_id: int) -> bool:
+async def get_free_usage(user_id: int) -> Tuple[int, Optional[datetime]]:
     """
-    Регистрирует реферала. Возвращает True, если запись была создана,
-    False, если такой invited_id уже есть.
-    """
-    global _pool
-    assert _pool is not None
-
-    async with _pool.acquire() as conn:
-        result = await conn.execute(
-            """
-            INSERT INTO referrals (inviter_id, invited_id)
-            VALUES ($1, $2)
-            ON CONFLICT (invited_id) DO NOTHING
-            """,
-            inviter_id, invited_id,
-        )
-        return result.endswith("1")
-
-
-async def get_referral_count(inviter_id: int) -> int:
-    """
-    Кол-во приглашённых этим пользователем.
+    Возвращает (free_used, last_used_at)
     """
     global _pool
     assert _pool is not None
 
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM referrals WHERE inviter_id = $1",
-            inviter_id,
-        )
-        return int(row["cnt"]) if row else 0
-
-
-async def get_invited_users(inviter_id: int) -> List[int]:
-    """
-    Список tg_id (invited_id), которых привёл этот inviter.
-    """
-    global _pool
-    assert _pool is not None
-
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT invited_id FROM referrals WHERE inviter_id = $1",
-            inviter_id,
-        )
-        return [r["invited_id"] for r in rows]
-
-
-async def get_inviter(user_id: int) -> Optional[int]:
-    """
-    Кто пригласил этого пользователя (если есть запись).
-    """
-    global _pool
-    assert _pool is not None
-
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT inviter_id FROM referrals WHERE invited_id = $1",
-            user_id,
-        )
-        return int(row["inviter_id"]) if row else None
-
-
-# ---------- REF_STARS (накопленные реферальные Stars) ----------
-
-async def get_ref_stars(user_id: int) -> Tuple[int, int]:
-    """
-    Возвращает (total_stars, stars_balance).
-    total_stars — сколько всего начислено за всё время.
-    stars_balance — текущий баланс для конвертации в кредиты.
-    """
-    global _pool
-    assert _pool is not None
-
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT total_stars, stars_balance FROM ref_stars WHERE user_id = $1",
+            "SELECT free_used, last_used_at FROM usage WHERE user_id = $1",
             user_id,
         )
         if not row:
-            return 0, 0
-        return int(row["total_stars"]), int(row["stars_balance"])
+            return 0, None
+        return int(row["free_used"]), row["last_used_at"]
 
 
-async def add_ref_stars(user_id: int, bonus_stars: int) -> Tuple[int, int]:
+async def increment_free_usage(user_id: int) -> None:
     """
-    Увеличивает total_stars и stars_balance на bonus_stars.
-    Возвращает (total_stars, stars_balance) после обновления.
-    """
-    global _pool
-    assert _pool is not None
-
-    now = _now()
-    async with _pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO ref_stars (user_id, total_stars, stars_balance, created_at, updated_at)
-            VALUES ($1, $2, $2, $3, $3)
-            ON CONFLICT (user_id) DO UPDATE
-            SET total_stars   = ref_stars.total_stars   + EXCLUDED.total_stars,
-                stars_balance = ref_stars.stars_balance + EXCLUDED.stars_balance,
-                updated_at    = EXCLUDED.updated_at
-            RETURNING total_stars, stars_balance
-            """,
-            user_id, bonus_stars, now,
-        )
-        return int(row["total_stars"]), int(row["stars_balance"])
-
-
-async def set_ref_stars_balance(user_id: int, new_balance: int) -> None:
-    """
-    Обновляет только stars_balance (используется после конвертации в кредиты).
+    Увеличивает счётчик бесплатных использований.
     """
     global _pool
     assert _pool is not None
@@ -345,22 +262,98 @@ async def set_ref_stars_balance(user_id: int, new_balance: int) -> None:
     async with _pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO ref_stars (user_id, total_stars, stars_balance, created_at, updated_at)
-            VALUES ($1, 0, $2, $3, $3)
+            INSERT INTO usage (user_id, free_used, last_used_at)
+            VALUES ($1, 1, $2)
             ON CONFLICT (user_id) DO UPDATE
-            SET stars_balance = $2,
-                updated_at    = $3
+              SET free_used = usage.free_used + 1,
+                  last_used_at = EXCLUDED.last_used_at
             """,
-            user_id, new_balance, now,
+            user_id, now,
         )
 
 
-# ---------- REF_PUSHES (когда последний пуш рефералки) ----------
+# ---------- REF_STARS (баланс звёзд у реферала) ----------
+
+async def add_ref_stars(user_id: int, stars: int) -> None:
+    """
+    Прибавить к пользователю реферальные Stars.
+    """
+    global _pool
+    assert _pool is not None
+
+    if stars <= 0:
+        return
+
+    now = _now()
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO ref_stars (user_id, total_stars, stars_balance, created_at, updated_at)
+            VALUES ($1, $2, $2, $3, $3)
+            ON CONFLICT (user_id) DO UPDATE
+              SET total_stars = ref_stars.total_stars + $2,
+                  stars_balance = ref_stars.stars_balance + $2,
+                  updated_at = $3
+            """,
+            user_id, stars, now,
+        )
+
+
+async def get_ref_stars(user_id: int) -> Tuple[int, int]:
+    """
+    Возвращает (total_stars, stars_balance).
+    """
+    global _pool
+    assert _pool is not None
+
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT total_stars, stars_balance
+            FROM ref_stars
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+        if not row:
+            return 0, 0
+        return int(row["total_stars"]), int(row["stars_balance"])
+
+
+async def spend_ref_stars(user_id: int, stars: int) -> bool:
+    """
+    Пытается списать stars с реферального баланса.
+    Возвращает True, если списание прошло, False — если не хватило.
+    """
+    global _pool
+    assert _pool is not None
+
+    if stars <= 0:
+        return True
+
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT stars_balance FROM ref_stars WHERE user_id = $1",
+            user_id,
+        )
+        if not row or row["stars_balance"] < stars:
+            return False
+
+        await conn.execute(
+            """
+            UPDATE ref_stars
+            SET stars_balance = stars_balance - $1,
+                updated_at = $2
+            WHERE user_id = $3
+            """,
+            stars, _now(), user_id,
+        )
+        return True
+
+
+# ---------- REF_PUSHES (last_ref_push) ----------
 
 async def get_last_ref_push(user_id: int) -> Optional[datetime]:
-    """
-    Возвращает время последнего пуша (или None, если ещё не слали).
-    """
     global _pool
     assert _pool is not None
 
@@ -372,21 +365,20 @@ async def get_last_ref_push(user_id: int) -> Optional[datetime]:
         return row["last_push_at"] if row else None
 
 
-async def set_last_ref_push(user_id: int) -> None:
-    """
-    Обновляет время последнего пуша на текущее.
-    """
+async def set_last_ref_push(user_id: int, ts: Optional[datetime] = None) -> None:
     global _pool
     assert _pool is not None
 
-    now = _now()
+    if ts is None:
+        ts = _now()
+
     async with _pool.acquire() as conn:
         await conn.execute(
             """
             INSERT INTO ref_pushes (user_id, last_push_at)
             VALUES ($1, $2)
             ON CONFLICT (user_id) DO UPDATE
-            SET last_push_at = EXCLUDED.last_push_at
+              SET last_push_at = EXCLUDED.last_push_at
             """,
-            user_id, now,
+            user_id, ts,
         )
