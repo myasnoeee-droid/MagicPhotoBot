@@ -1,12 +1,12 @@
+# db.py
 import os
 import asyncpg
 from typing import Optional, Tuple, List
 from datetime import datetime, timezone
 
+# На Railway это должна быть переменная окружения DATABASE_URL
+# (скорее всего ты её ещё не настроил, поэтому НЕ падаем здесь, а проверяем внутри init_db)
 DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    # На Railway должна быть переменная DATABASE_URL = ${Postgres.DATABASE_URL}
-    raise RuntimeError("DATABASE_URL is not set")
 
 _pool: Optional[asyncpg.Pool] = None
 
@@ -27,6 +27,14 @@ async def init_db():
     global _pool
     if _pool is not None:
         return
+
+    if not DATABASE_URL:
+        # Пока просто логическая ошибка, чтобы было понятно в логах,
+        # но модуль сам по себе больше не падает при импортe.
+        raise RuntimeError(
+            "DATABASE_URL is not set. "
+            "Зайди в Railway → твой Postgres → Variables и прокинь DATABASE_URL в сервис бота."
+        )
 
     _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
 
@@ -232,7 +240,6 @@ async def add_referral(inviter_id: int, invited_id: int) -> bool:
             """,
             inviter_id, invited_id,
         )
-        # asyncpg возвращает строку вида "INSERT 0 1" или "INSERT 0 0"
         return result.endswith("1")
 
 
