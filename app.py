@@ -96,26 +96,26 @@ def mode_choice_keyboard(lang: str) -> InlineKeyboardMarkup:
     labels = {
         "ua": {
             "photo": "✨ Оживлення фото",
-            "dub": "🎧 Озвучка відео (lip-sync)",
+            "dub":   "🧠 Говоряча голова (OmniHuman)",
         },
         "en": {
             "photo": "✨ Photo animation",
-            "dub": "🎧 Video dubbing (lip-sync)",
+            "dub":   "🧠 Talking head (OmniHuman)",
         },
         "es": {
             "photo": "✨ Animar foto",
-            "dub": "🎧 Doblaje de vídeo (lip-sync)",
+            "dub":   "🧠 Cabeza parlante (OmniHuman)",
         },
         "pt": {
             "photo": "✨ Animação de foto",
-            "dub": "🎧 Dublagem de vídeo (lip-sync)",
+            "dub":   "🧠 Cabeça falante (OmniHuman)",
         },
     }
     l = labels.get(lang, labels["en"])
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=l["photo"], callback_data="mode:photo")],
-            [InlineKeyboardButton(text=l["dub"], callback_data="mode:dub")],
+            [InlineKeyboardButton(text=l["dub"],   callback_data="mode:dub")],
         ]
     )
 
@@ -125,25 +125,25 @@ def mode_choice_text(lang: str) -> str:
         return (
             "Обери режим магії 🪄\n\n"
             "1️⃣ <b>Оживлення фото</b> — анімація портретів, як у магічних фільмах.\n"
-            "2️⃣ <b>Озвучка відео</b> — синхронізація губ у відео з твоїм голосом (lip-sync)."
+            "2️⃣ <b>Говоряча голова (OmniHuman)</b> — надішли фото, потім аудіо, і фото заговорить твоїм голосом."
         )
     if lang == "es":
         return (
             "Elige el modo de magia 🪄\n\n"
             "1️⃣ <b>Animar foto</b> — retratos animados como en películas mágicas.\n"
-            "2️⃣ <b>Doblaje de vídeo</b> — sincroniza los labios del vídeo con tu voz (lip-sync)."
+            "2️⃣ <b>Cabeza parlante (OmniHuman)</b> — envía una foto y luego un audio, y la foto hablará con tu voz."
         )
     if lang == "pt":
         return (
             "Escolha o modo de magia 🪄\n\n"
             "1️⃣ <b>Animação de foto</b> — retratos animados como em filmes mágicos.\n"
-            "2️⃣ <b>Dublagem de vídeo</b> — sincroniza os lábios do vídeo com sua voz (lip-sync)."
+            "2️⃣ <b>Cabeça falante (OmniHuman)</b> — envie uma foto e depois um áudio, e a foto falará com a sua voz."
         )
     # en по умолчанию
     return (
         "Choose your magic mode 🪄\n\n"
         "1️⃣ <b>Photo animation</b> — animate portraits like in magic movies.\n"
-        "2️⃣ <b>Video dubbing</b> — sync lips in the video to your voice (lip-sync)."
+        "2️⃣ <b>Talking head (OmniHuman)</b> — send a photo, then an audio, and the photo will speak with your voice."
     )
 
 
