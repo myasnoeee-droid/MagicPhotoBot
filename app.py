@@ -109,7 +109,6 @@ def tr_lang(lang: str, key: str) -> str:
 
 
 def lang_choice_keyboard() -> InlineKeyboardMarkup:
-    # Магический экран выбора языка
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -121,7 +120,8 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🇧🇷 Português (BR)", callback_data="lang:pt"),
             ],
         ]
-        def model_selection_keyboard(uid: int) -> InlineKeyboardMarkup:
+    )
+    def model_selection_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
 
     texts = {
@@ -136,9 +136,8 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=t1, callback_data="mode:animate")],
             [InlineKeyboardButton(text=t2, callback_data="mode:lipsync")],
-        ]    
+        ]
     )
-
 # ---------- Пресеты (региональные) ----------
 
 PRESET_PROMPTS_BASE = [
