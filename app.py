@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 
 from limiter import FreeUsageLimiter
 from processing import animate_photo_via_replicate, download_file
+from processing import animate_photo_via_replicate, download_file, lipsync_video_with_audio
 
 load_dotenv()
 
@@ -1041,8 +1042,11 @@ async def on_lang_set(query: CallbackQuery):
             await query.message.answer(tr(uid, "lang_set"))
 
     await query.message.answer(
-        tr(uid, "welcome"),
-        reply_markup=main_menu_keyboard(uid)
+    "🪄 Обери режим роботи:\n\n"
+    "1️⃣ Оживити фото\n"
+    "2️⃣ Озвучити відео",
+    reply_markup=model_selection_keyboard(uid)
+)
     )
     await query.answer()
 
