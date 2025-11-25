@@ -1745,6 +1745,7 @@ async def on_photo(message: Message):
         await message.answer(texts.get(lang, texts["en"]))
         return
 
+
 @dp.message(F.video)
 async def on_video(message: Message):
     uid = message.from_user.id if message.from_user else 0
@@ -1804,10 +1805,13 @@ async def on_video(message: Message):
 
     try:
         result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
-        if not result.get("ok"):
-            gen_fail += 1
-            await msg.edit_text(tr(uid, "done"))
-            return
+
+    if not result.get("ok"):
+        gen_fail += 1
+        err = result.get("error") or "unknown_error"
+        # Покажем ошибку, а не "готово"
+        await msg.edit_text(f"⚠️ Lip-sync error: {err}")
+        return
 
         gen_success += 1
         out_url = result["url"]
