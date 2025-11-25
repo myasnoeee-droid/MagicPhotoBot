@@ -26,8 +26,8 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
 from limiter import FreeUsageLimiter
-from processing import animate_photo_via_replicate, download_file
-from processing import animate_photo_via_replicate, download_file, omni_lipsync
+from processing import animate_photo_via_replicate, download_file, omni_talking_head
+
 
 load_dotenv()
 
@@ -74,14 +74,20 @@ user_lang: Dict[int, str] = {}  # user_id -> "ua"/"en"/"es"/"pt"
 
 # ---------- Режимы работы бота ----------
 
-MODE_PHOTO = "photo"   # оживление фото
-MODE_DUB = "dub"       # озвучка видео (lip-sync)
+MODE_PHOTO = "photo"   # обычное оживление фото
+MODE_DUB = "dub"       # говорящая голова (OmniHuman: фото + аудио)
 
-user_mode: Dict[int, str] = {}          # user_id -> режим
-user_dub_audio: Dict[int, str] = {}     # user_id -> URL последнего аудио для озвучки
+# режим пользователя: uid -> "photo" / "dub"
+user_mode: Dict[int, str] = {}
+
+# для OmniHuman: сюда кладём URL фото, по которому потом будем делать говорящую голову
+omni_pending_photo: Dict[int, str] = {}  # uid -> image_url
 
 
 def get_mode(uid: int) -> str:
+    """
+    Текущий режим пользователя. По умолчанию — MODE_PHOTO.
+    """
     return user_mode.get(uid, MODE_PHOTO)
 
 
@@ -310,6 +316,8 @@ PRESET_TITLES: Dict[str, list[str]] = {
 
 pending_photo: Dict[int, Dict[str, Any]] = {}
 pending_choice: Dict[int, Dict[str, Any]] = {}
+omni_pending_photo: Dict[int, str] = {}  # uid -> file_id фото для говорящей головы
+user_mode: Dict[int, str] = {}  # "animate" (по умолчанию) или "omni"
 
 # ---------- Пользователи и пуши ----------
 
@@ -1173,24 +1181,24 @@ async def on_mode_dub(query: CallbackQuery):
 
     texts = {
         "ua": (
-            "Режим: 🎧 Озвучка відео (lip-sync).\n\n"
-            "1) Спочатку надішли аудіо (голосове або аудіофайл),\n"
-            "2) Потім — відео, де потрібно рухати губами під це аудіо."
+            "Режим: 🎧 Говоряча голова (Omni).\n\n"
+            "1) Спочатку надішли фото з обличчям,\n"
+            "2) Потім — аудіо (voice або аудіофайл), і я зроблю відео, де це фото говорить твоїм голосом."
         ),
         "en": (
-            "Mode: 🎧 Video dubbing (lip-sync).\n\n"
-            "1) First send an audio (voice message or audio file),\n"
-            "2) Then send the video whose lips should follow this audio."
+            "Mode: 🎧 Talking head (Omni).\n\n"
+            "1) First send a photo with a face,\n"
+            "2) Then send an audio (voice message or audio file), and I’ll make a video of this photo speaking with your voice."
         ),
         "es": (
-            "Modo: 🎧 Doblaje de vídeo (lip-sync).\n\n"
-            "1) Primero envía un audio (nota de voz o archivo de audio),\n"
-            "2) Luego el vídeo cuyos labios deben seguir ese audio."
+            "Modo: 🎧 Cabeza parlante (Omni).\n\n"
+            "1) Primero envía una foto con un rostro,\n"
+            "2) Luego un audio (nota de voz o archivo), y haré un vídeo donde esta foto habla con tu voz."
         ),
         "pt": (
-            "Modo: 🎧 Dublagem de vídeo (lip-sync).\n\n"
-            "1) Primeiro envie um áudio (mensagem de voz ou arquivo de áudio),\n"
-            "2) Depois envie o vídeo cujos lábios devem seguir esse áudio."
+            "Modo: 🎧 Cabeça falante (Omni).\n\n"
+            "1) Primeiro envie uma foto com um rosto,\n"
+            "2) Depois um áudio (mensagem de voz ou arquivo), e farei um vídeo em que essa foto fala com a sua voz."
         ),
     }
     await query.message.answer(
@@ -1198,7 +1206,7 @@ async def on_mode_dub(query: CallbackQuery):
         reply_markup=main_menu_keyboard(uid),
     )
     await query.answer()
-
+    
 
 @dp.message(Command("pricing"))
 async def on_pricing(message: Message):
@@ -1695,37 +1703,7 @@ async def on_partner_reload(query: CallbackQuery):
     await query.message.edit_text(text, reply_markup=partner_keyboard(uid))
     await query.answer("Оновлено!")
 
-# ---------- Фото + пресеты ----------
-@dp.message(F.voice | F.audio)
-async def on_audio(message: Message):
-    uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
-    awaiting_support.pop(uid, None)
-    awaiting_video_order.pop(uid, None)
-
-    # работаем только в режиме озвучки
-    if get_mode(uid) != MODE_DUB:
-        return
-
-    # получаем file_id
-    file_id = message.voice.file_id if message.voice else message.audio.file_id
-
-    # получаем ссылку на файл Telegram (по аналогии с фото)
-    file_info = await bot.get_file(file_id)
-    audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-
-    user_dub_audio[uid] = audio_url
-
-    lang = get_lang(uid)
-    texts = {
-        "ua": "🎧 Аудіо отримав. Тепер надішли відео, яке потрібно озвучити.",
-        "en": "🎧 Got your audio. Now send the video you want to dub.",
-        "es": "🎧 Audio recibido. Ahora envía el vídeo que quieres doblar.",
-        "pt": "🎧 Áudio recebido. Agora envie o vídeo que você quer dublar.",
-    }
-    await message.answer(texts.get(lang, texts["en"]))
-
-
+# ---------- Фото ----------
 @dp.message(F.photo)
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
@@ -1733,135 +1711,33 @@ async def on_photo(message: Message):
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
-    # фото анимируем только в режиме PHOTO
-    if get_mode(uid) != MODE_PHOTO:
+    mode = get_mode(uid)
+
+    # ------ 1) Режим говорящей головы (OmniHuman) ------
+    if mode == MODE_DUB:
+        photo = message.photo[-1]
+        file_info = await bot.get_file(photo.file_id)
+        image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        omni_pending_photo[uid] = image_url
+
         lang = get_lang(uid)
         texts = {
-            "ua": "Зараз увімкнено режим озвучки відео. Щоб оживити фото — переключись на режим фото через /start (обрати мову/режим) або /menu.",
-            "en": "You are now in video dubbing mode. To animate a photo, switch to photo mode via /start or /menu.",
-            "es": "Estás en modo de doblaje de vídeo. Para animar una foto, cambia al modo foto con /start o /menu.",
-            "pt": "Você está no modo dublagem de vídeo. Para animar uma foto, mude para o modo foto via /start ou /menu.",
+            "ua": "✅ Фото збережено! Тепер надішли аудіо (voice або аудіофайл).",
+            "en": "✅ Photo saved! Now send an audio (voice message or audio file).",
+            "es": "✅ Foto guardada. Ahora envía un audio.",
+            "pt": "✅ Foto salva! Agora envie um áudio.",
         }
         await message.answer(texts.get(lang, texts["en"]))
         return
 
-
-@dp.message(F.video)
-async def on_video(message: Message):
-    uid = message.from_user.id if message.from_user else 0
-    register_user(uid)
-    awaiting_support.pop(uid, None)
-    awaiting_video_order.pop(uid, None)
-
-    # видео для липсинка только в режиме DUB
-    if get_mode(uid) != MODE_DUB:
-        lang = get_lang(uid)
-        texts = {
-            "ua": "Щоб озвучити відео (lip-sync), спочатку обери режим озвучки після /start.",
-            "en": "To dub a video (lip-sync), first choose dubbing mode after /start.",
-            "es": "Para doblar un vídeo (lip-sync), primero elige el modo de doblaje después de /start.",
-            "pt": "Para dublar um vídeo (lip-sync), primeiro escolha o modo de dublagem após /start.",
-        }
-        await message.answer(texts.get(lang, texts["en"]))
-        return
-
-    # проверяем, что есть сохранённое аудио
-    audio_url = user_dub_audio.get(uid)
-    if not audio_url:
-        lang = get_lang(uid)
-        texts = {
-            "ua": "Спочатку надішли аудіо (голосове або аудіофайл), потім — відео.",
-            "en": "First send an audio (voice or audio file), then send the video.",
-            "es": "Primero envía un audio (nota de voz o archivo), luego el vídeo.",
-            "pt": "Primeiro envie um áudio (mensagem de voz ou arquivo), depois o vídeo.",
-        }
-        await message.answer(texts.get(lang, texts["en"]))
-        return
-
+    # ------ 2) Обычная анимация фото (как было раньше) ------
     is_admin = (uid == ADMIN_USER_ID)
-    had_paid = user_credits.get(uid, 0) > 0
 
-    # проверяем лимиты
     if not (TEST_MODE and is_admin):
         if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
             await message.answer(tr(uid, "free_used"))
             return
 
-    # получаем ссылку на видео-файл Telegram
-    file_info = await bot.get_file(message.video.file_id)
-    video_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-
-    lang = get_lang(uid)
-    waiting_texts = {
-        "ua": "🎧 Роблю lip-sync: синхронізую губи відео з твоїм аудіо. Це може зайняти трохи часу…",
-        "en": "🎧 Doing lip-sync: syncing the video lips to your audio. This may take a bit…",
-        "es": "🎧 Haciendo lip-sync: sincronizando los labios del vídeo con tu audio. Puede tardar un poco…",
-        "pt": "🎧 Fazendo lip-sync: sincronizando os lábios do vídeo com seu áudio. Isso pode levar um pouco…",
-    }
-    
-    msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
-
-    global gen_success, gen_fail
-
-    try:
-        result = await omni_lipsync(video_url=video_url, audio_url=audio_url)
-    except Exception as e:
-        gen_fail += 1
-        await msg.edit_text(f"⚠️ Omni lip-sync exception: {e}")
-        return
-
-    if not result.get("ok"):
-        gen_fail += 1
-        err = result.get("error") or "unknown_error"
-        await msg.edit_text(f"⚠️ Lip-sync error: {err}")
-        return
-
-    # если всё ок →
-    gen_success += 1
-    out_url = result["url"]
-
-    # Скачаем файл, чтобы отправить как видео-файл, а не ссылку
-    tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"lipsync_{uid}.mp4")
-    try:
-        await download_file(out_url, tmp_path)
-    except Exception as e:
-        gen_fail += 1
-        await msg.edit_text(f"⚠️ Download error: {e}")
-        return
-
-    wm_map = {
-        "ua": "\n\n🔖 Озвучено в Magl’sBot (lip-sync)",
-        "en": "\n\n🔖 Dubbed with Magl’sBot (lip-sync)",
-        "es": "\n\n🔖 Doblado con Magl’sBot (lip-sync)",
-        "pt": "\n\n🔖 Dublado com Magl’sBot (lip-sync)",
-    }
-    watermark_suffix = wm_map.get(lang, "\n\n🔖 Dubbed with Magl’sBot (lip-sync)")
-
-    await msg.delete()
-
-    await bot.send_video(
-        chat_id=message.chat.id,
-        video=FSInputFile(tmp_path),
-        caption=tr(uid, "done") + watermark_suffix,
-        reply_markup=buy_cta_keyboard(uid),
-    )
-
-    # списываем кредиты / free-лимит
-    if not (TEST_MODE and is_admin):
-        if had_paid and user_credits.get(uid, 0) > 0:
-            user_credits[uid] -= 1
-        else:
-            limiter.mark_used(uid)
-
-    # сбрасываем аудио, чтобы следующее видео было под новое
-    user_dub_audio.pop(uid, None)
-
-    try:
-        os.remove(tmp_path)
-    except Exception:
-        pass
-
-    
     photo = message.photo[-1]
 
     width = photo.width
@@ -1884,29 +1760,24 @@ async def on_video(message: Message):
     lang = get_lang(uid)
 
     if is_old_like:
-        idx = 4  # Blink & Glow
+        idx = 4
         pending_choice[uid] = {"type": "preset", "idx": idx}
 
         titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
         title_txt = titles[idx] if 0 <= idx < len(titles) else "Blink & Glow"
 
         desc_map = LOCALES.get(lang, {}).get("preset_desc", {})
-        desc = ""
-        if isinstance(desc_map, dict):
-            desc = desc_map.get(str(idx + 1), "")
+        desc = desc_map.get(str(idx + 1), "") if isinstance(desc_map, dict) else ""
 
         confirm_texts = {
-            "ua": "✨ Це фото виглядає як старе/архівне.\nРекомендуємо пресет нижче — запустити з ним анімацію?",
-            "en": "✨ This photo looks like an old/archival one.\nWe recommend the preset below — start animation with it?",
-            "es": "✨ Esta foto parece antigua/de archivo.\nTe recomendamos este preset — ¿iniciar la animación con él?",
-            "pt": "✨ Esta foto parece antiga/de arquivo.\nRecomendamos este preset — iniciar animação com ele?",
+            "ua": "✨ Це фото виглядає як старе. Використати цей пресет?",
+            "en": "✨ This photo looks old. Use this preset?",
+            "es": "✨ Esta foto parece antigua. ¿Usar este preset?",
+            "pt": "✨ Esta foto parece antiga. Usar este preset?",
         }
         confirm_line = confirm_texts.get(lang, confirm_texts["en"])
 
-        if desc:
-            header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
-        else:
-            header_text = f"🎨 {title_txt}\n\n{confirm_line}"
+        header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}".strip()
 
         await message.answer(
             header_text,
@@ -1918,6 +1789,103 @@ async def on_video(message: Message):
         tr(uid, "choose_preset"),
         reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"])),
     )
+
+
+# ---------- Аудио для OmniHuman ----------
+@dp.message(F.audio | F.voice)
+async def on_audio_omni(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
+
+    # работаем только в режиме говорящей головы
+    if get_mode(uid) != MODE_DUB:
+        return
+
+    image_url = omni_pending_photo.get(uid)
+    if not image_url:
+        lang = get_lang(uid)
+        texts = {
+            "ua": "Спочатку надішли фото 🙂",
+            "en": "First send a photo 🙂",
+            "es": "Primero envía una foto 🙂",
+            "pt": "Primeiro envie uma foto 🙂",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
+
+    is_admin = (uid == ADMIN_USER_ID)
+    had_paid = user_credits.get(uid, 0) > 0
+
+    if not (TEST_MODE and is_admin):
+        if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
+            await message.answer(tr(uid, "free_used"))
+            return
+
+    # URL аудио
+    audio_file_id = message.audio.file_id if message.audio else message.voice.file_id
+    file_info_a = await bot.get_file(audio_file_id)
+    audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info_a.file_path}"
+
+    lang = get_lang(uid)
+    msg = await message.answer(
+        {
+            "ua": "🎧 Створюю відео…",
+            "en": "🎧 Creating video…",
+            "es": "🎧 Creando vídeo…",
+            "pt": "🎧 Criando vídeo…",
+        }.get(lang, "🎧 Creating video…")
+    )
+
+    global gen_success, gen_fail
+
+    try:
+        result = await omni_talking_head(image_url=image_url, audio_url=audio_url)
+    except Exception as e:
+        gen_fail += 1
+        await msg.edit_text(f"⚠️ Omni exception: {e}")
+        return
+
+    if not result.get("ok"):
+        gen_fail += 1
+        await msg.edit_text(f"⚠️ Omni error: {result.get('error')}")
+        return
+
+    gen_success += 1
+    out_url = result["url"]
+
+    tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"omni_{uid}.mp4")
+    try:
+        await download_file(out_url, tmp_path)
+
+        try:
+            await msg.delete()
+        except:
+            pass
+
+        await bot.send_video(
+            chat_id=message.chat.id,
+            video=FSInputFile(tmp_path),
+            caption=tr(uid, "done") + "\n\n🔖 Made with Magl’sBot (OmniHuman)",
+            reply_markup=buy_cta_keyboard(uid),
+        )
+
+        if not (TEST_MODE and is_admin):
+            if had_paid and user_credits.get(uid, 0) > 0:
+                user_credits[uid] -= 1
+            else:
+                limiter.mark_used(uid)
+
+    finally:
+        try:
+            os.remove(tmp_path)
+        except:
+            pass
+
+    omni_pending_photo.pop(uid, None)
+
+
 
 
 @dp.callback_query(F.data.startswith("preset:"))
