@@ -9,8 +9,8 @@ import aiohttp  # используем для неблокирующих зап�
 logger = logging.getLogger("processing")
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")          # модель для анимации фото
-REPLICATE_OMNI_MODEL = os.getenv("REPLICATE_OMNI_MODEL")  # модель bytedance/omni-human-1.5
+REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")              # модель для анимации фото (как было)
+REPLICATE_OMNI_MODEL = os.getenv("REPLICATE_OMNI_MODEL")    # модель bytedance/omni-human-1.5 (говорящая голова)
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
 
@@ -131,15 +131,18 @@ async def animate_photo_via_replicate(
         return {"ok": False, "error": "timeout"}
 
 
-# ---------- LIP-SYNC ЧЕРЕЗ BYTEDANCE / OMNI-HUMAN ----------
+# ---------- ГОВОРЯЩАЯ ГОЛОВА ЧЕРЕЗ OMNI-HUMAN (фото + аудио) ----------
 
-async def omni_lipsync(
-    video_url: str,
+async def omni_talking_head(
+    image_url: str,
     audio_url: str,
 ) -> Dict[str, Any]:
     """
-    Lip-sync видео через модель bytedance/omni-human-1.5 на Replicate.
-    На вход: URL видео (Telegram mp4) и URL аудио (voice/audio/file от Telegram).
+    Генерация говорящей головы по фото и аудио через bytedance/omni-human-1.5 на Replicate.
+
+    input:
+      image: URL фото с лицом
+      audio: URL аудиофайла (voice/audio/file из Telegram)
     """
 
     if not REPLICATE_API_TOKEN or not REPLICATE_OMNI_MODEL:
@@ -160,18 +163,18 @@ async def omni_lipsync(
         "Content-Type": "application/json",
     }
 
-    # Входы omni-human:
-    # source_video — видео с лицом
-    # driven_audio — аудио, по которому двигаются губы
+    # Входы omni-human для talking head:
+    # image — фото
+    # audio — аудио
     payload: Dict[str, Any] = {
         "version": version,
         "input": {
-            "source_video": video_url,
-            "driven_audio": audio_url,
+            "image": image_url,
+            "audio": audio_url,
         },
     }
 
-    timeout = aiohttp.ClientTimeout(total=600)
+    timeout = aiohttp.ClientTimeout(total=900)  # чуть больше, модель может думать дольше
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         # 1) создаём prediction
@@ -201,7 +204,7 @@ async def omni_lipsync(
             return {"ok": False, "error": "no_get_url"}
 
         # 2) Ожидаем завершения (polling)
-        for _ in range(180):  # до ~3 минут
+        for _ in range(240):  # до ~4 минут
             await asyncio.sleep(1)
             try:
                 async with session.get(get_url, headers=headers) as resp2:
