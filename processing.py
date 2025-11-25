@@ -134,13 +134,19 @@ async def lipsync_video_with_audio(
 ) -> Dict[str, Any]:
     """
     Делает lip-sync видео через модель pixverse/lipsync на Replicate.
-    На вход подаём URL видео и URL аудио (Replicate сам их скачает).
-    Возвращает dict { "ok": True, "url": "https://..." } либо { "ok": False, "error": "..." }.
     """
-
     if not REPLICATE_API_TOKEN or not REPLICATE_LIPSYNC_MODEL:
         logger.error("Replicate lipsync credentials/model are not set")
         return {"ok": False, "error": "no_replicate_lipsync_credentials"}
+
+    # REPLICATE_LIPSYNC_MODEL может быть как:
+    # - "pixverse/lipsync:HASH"
+    # - так и просто "HASH"
+    raw = REPLICATE_LIPSYNC_MODEL.strip()
+    if ":" in raw:
+        version = raw.split(":")[-1]
+    else:
+        version = raw
 
     headers = {
         "Authorization": f"Token {REPLICATE_API_TOKEN}",
@@ -148,7 +154,7 @@ async def lipsync_video_with_audio(
     }
 
     payload: Dict[str, Any] = {
-        "version": REPLICATE_LIPSYNC_MODEL,
+        "version": version,
         "input": {
             "video": video_url,
             "audio": audio_url,
