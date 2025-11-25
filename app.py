@@ -72,6 +72,74 @@ DEFAULT_LANG = "en"
 LOCALES: Dict[str, Dict[str, Any]] = {}
 user_lang: Dict[int, str] = {}  # user_id -> "ua"/"en"/"es"/"pt"
 
+# ---------- Режимы работы бота ----------
+
+MODE_PHOTO = "photo"   # оживление фото
+MODE_DUB = "dub"       # озвучка видео (lip-sync)
+
+user_mode: Dict[int, str] = {}          # user_id -> режим
+user_dub_audio: Dict[int, str] = {}     # user_id -> URL последнего аудио для озвучки
+
+
+def get_mode(uid: int) -> str:
+    return user_mode.get(uid, MODE_PHOTO)
+
+
+def mode_choice_keyboard(lang: str) -> InlineKeyboardMarkup:
+    # Локализация кнопок выбора режима
+    labels = {
+        "ua": {
+            "photo": "✨ Оживлення фото",
+            "dub": "🎧 Озвучка відео (lip-sync)",
+        },
+        "en": {
+            "photo": "✨ Photo animation",
+            "dub": "🎧 Video dubbing (lip-sync)",
+        },
+        "es": {
+            "photo": "✨ Animar foto",
+            "dub": "🎧 Doblaje de vídeo (lip-sync)",
+        },
+        "pt": {
+            "photo": "✨ Animação de foto",
+            "dub": "🎧 Dublagem de vídeo (lip-sync)",
+        },
+    }
+    l = labels.get(lang, labels["en"])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=l["photo"], callback_data="mode:photo")],
+            [InlineKeyboardButton(text=l["dub"], callback_data="mode:dub")],
+        ]
+    )
+
+
+def mode_choice_text(lang: str) -> str:
+    if lang == "ua":
+        return (
+            "Обери режим магії 🪄\n\n"
+            "1️⃣ <b>Оживлення фото</b> — анімація портретів, як у магічних фільмах.\n"
+            "2️⃣ <b>Озвучка відео</b> — синхронізація губ у відео з твоїм голосом (lip-sync)."
+        )
+    if lang == "es":
+        return (
+            "Elige el modo de magia 🪄\n\n"
+            "1️⃣ <b>Animar foto</b> — retratos animados como en películas mágicas.\n"
+            "2️⃣ <b>Doblaje de vídeo</b> — sincroniza los labios del vídeo con tu voz (lip-sync)."
+        )
+    if lang == "pt":
+        return (
+            "Escolha o modo de magia 🪄\n\n"
+            "1️⃣ <b>Animação de foto</b> — retratos animados como em filmes mágicos.\n"
+            "2️⃣ <b>Dublagem de vídeo</b> — sincroniza os lábios do vídeo com sua voz (lip-sync)."
+        )
+    # en по умолчанию
+    return (
+        "Choose your magic mode 🪄\n\n"
+        "1️⃣ <b>Photo animation</b> — animate portraits like in magic movies.\n"
+        "2️⃣ <b>Video dubbing</b> — sync lips in the video to your voice (lip-sync)."
+    )
+
 
 def load_locales():
     base = Path(__file__).parent / "locales"
@@ -1048,6 +1116,10 @@ async def on_lang_set(query: CallbackQuery):
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
+    # по умолчанию режим фото
+    user_mode[uid] = MODE_PHOTO
+
+    # пытаемся обновить подпись/текст
     try:
         await query.message.edit_caption(tr(uid, "lang_set"))
     except Exception:
@@ -1056,11 +1128,68 @@ async def on_lang_set(query: CallbackQuery):
         except Exception:
             await query.message.answer(tr(uid, "lang_set"))
 
+    lang = get_lang(uid)
+
+    # теперь предлагаем выбрать режим
     await query.message.answer(
-    "🪄 Обери режим роботи:\n\n"
-    "1️⃣ Оживити фото\n"
-    "2️⃣ Озвучити відео",
-    reply_markup=model_selection_keyboard(uid)
+        mode_choice_text(lang),
+        reply_markup=mode_choice_keyboard(lang),
+    )
+
+    await query.answer()
+
+@dp.callback_query(F.data == "mode:photo")
+async def on_mode_photo(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+    user_mode[uid] = MODE_PHOTO
+    lang = get_lang(uid)
+
+    texts = {
+        "ua": "Режим: ✨ Оживлення фото.\n\nНадішли мені фото — я оживлю його 🪄",
+        "en": "Mode: ✨ Photo animation.\n\nSend me a photo and I’ll animate it 🪄",
+        "es": "Modo: ✨ Animar foto.\n\nEnvíame una foto y la animaré 🪄",
+        "pt": "Modo: ✨ Animação de foto.\n\nEnvie uma foto e eu vou animá-la 🪄",
+    }
+    await query.message.answer(
+        texts.get(lang, texts["en"]),
+        reply_markup=main_menu_keyboard(uid),
+    )
+    await query.answer()
+
+
+@dp.callback_query(F.data == "mode:dub")
+async def on_mode_dub(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+    user_mode[uid] = MODE_DUB
+    lang = get_lang(uid)
+
+    texts = {
+        "ua": (
+            "Режим: 🎧 Озвучка відео (lip-sync).\n\n"
+            "1) Спочатку надішли аудіо (голосове або аудіофайл),\n"
+            "2) Потім — відео, де потрібно рухати губами під це аудіо."
+        ),
+        "en": (
+            "Mode: 🎧 Video dubbing (lip-sync).\n\n"
+            "1) First send an audio (voice message or audio file),\n"
+            "2) Then send the video whose lips should follow this audio."
+        ),
+        "es": (
+            "Modo: 🎧 Doblaje de vídeo (lip-sync).\n\n"
+            "1) Primero envía un audio (nota de voz o archivo de audio),\n"
+            "2) Luego el vídeo cuyos labios deben seguir ese audio."
+        ),
+        "pt": (
+            "Modo: 🎧 Dublagem de vídeo (lip-sync).\n\n"
+            "1) Primeiro envie um áudio (mensagem de voz ou arquivo de áudio),\n"
+            "2) Depois envie o vídeo cujos lábios devem seguir esse áudio."
+        ),
+    }
+    await query.message.answer(
+        texts.get(lang, texts["en"]),
+        reply_markup=main_menu_keyboard(uid),
     )
     await query.answer()
 
@@ -1351,13 +1480,41 @@ async def on_text(message: Message):
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
         awaiting_video_order.pop(uid, None)
-        prompt_texts = {
-            "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
-            "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
-            "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
-            "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
-        }
-        await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
+
+        if get_mode(uid) == MODE_DUB:
+            # Подсказка для режима озвучки
+            prompt_texts = {
+                "ua": (
+                    "🎧 Зараз увімкнено режим озвучки відео (lip-sync).\n\n"
+                    "1) Надішли аудіо (голосове або аудіофайл),\n"
+                    "2) Потім — відео, де потрібно синхронізувати губи."
+                ),
+                "en": (
+                    "🎧 You are in video dubbing (lip-sync) mode.\n\n"
+                    "1) Send an audio (voice or audio file),\n"
+                    "2) Then send the video to sync lips with this audio."
+                ),
+                "es": (
+                    "🎧 Estás en modo de doblaje de vídeo (lip-sync).\n\n"
+                    "1) Envía un audio (nota de voz o archivo de audio),\n"
+                    "2) Luego el vídeo para sincronizar los labios."
+                ),
+                "pt": (
+                    "🎧 Você está no modo de dublagem de vídeo (lip-sync).\n\n"
+                    "1) Envie um áudio (mensagem de voz ou arquivo de áudio),\n"
+                    "2) Depois o vídeo para sincronizar os lábios."
+                ),
+            }
+            await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
+        else:
+            # Классическое оживление фото
+            prompt_texts = {
+                "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
+                "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
+                "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
+                "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
+            }
+            await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
         return
 
     if text == labels["buy"]:
@@ -1533,6 +1690,35 @@ async def on_partner_reload(query: CallbackQuery):
     await query.answer("Оновлено!")
 
 # ---------- Фото + пресеты ----------
+@dp.message(F.voice | F.audio)
+async def on_audio(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
+
+    # работаем только в режиме озвучки
+    if get_mode(uid) != MODE_DUB:
+        return
+
+    # получаем file_id
+    file_id = message.voice.file_id if message.voice else message.audio.file_id
+
+    # получаем ссылку на файл Telegram (по аналогии с фото)
+    file_info = await bot.get_file(file_id)
+    audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
+    user_dub_audio[uid] = audio_url
+
+    lang = get_lang(uid)
+    texts = {
+        "ua": "🎧 Аудіо отримав. Тепер надішли відео, яке потрібно озвучити.",
+        "en": "🎧 Got your audio. Now send the video you want to dub.",
+        "es": "🎧 Audio recibido. Ahora envía el vídeo que quieres doblar.",
+        "pt": "🎧 Áudio recebido. Agora envie o vídeo que você quer dublar.",
+    }
+    await message.answer(texts.get(lang, texts["en"]))
+
 
 @dp.message(F.photo)
 async def on_photo(message: Message):
@@ -1541,13 +1727,121 @@ async def on_photo(message: Message):
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
-    is_admin = (uid == ADMIN_USER_ID)
+    # фото анимируем только в режиме PHOTO
+    if get_mode(uid) != MODE_PHOTO:
+        lang = get_lang(uid)
+        texts = {
+            "ua": "Зараз увімкнено режим озвучки відео. Щоб оживити фото — переключись на режим фото через /start (обрати мову/режим) або /menu.",
+            "en": "You are now in video dubbing mode. To animate a photo, switch to photo mode via /start or /menu.",
+            "es": "Estás en modo de doblaje de vídeo. Para animar una foto, cambia al modo foto con /start o /menu.",
+            "pt": "Você está no modo dublagem de vídeo. Para animar uma foto, mude para o modo foto via /start ou /menu.",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
 
+@dp.message(F.video)
+async def on_video(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
+
+    # видео для липсинка только в режиме DUB
+    if get_mode(uid) != MODE_DUB:
+        # можно мягко подсказать
+        lang = get_lang(uid)
+        texts = {
+            "ua": "Щоб озвучити відео (lip-sync), спочатку обери режим озвучки після /start.",
+            "en": "To dub a video (lip-sync), first choose dubbing mode after /start.",
+            "es": "Para doblar un vídeo (lip-sync), primero elige el modo de doblaje después de /start.",
+            "pt": "Para dublar um vídeo (lip-sync), primeiro escolha o modo de dublagem após /start.",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
+
+    # проверяем, что есть аудио
+    audio_url = user_dub_audio.get(uid)
+    if not audio_url:
+        lang = get_lang(uid)
+        texts = {
+            "ua": "Спочатку надішли аудіо (голосове або аудіофайл), потім — відео.",
+            "en": "First send an audio (voice or audio file), then send the video.",
+            "es": "Primero envía un audio (nota de voz o archivo), luego el vídeo.",
+            "pt": "Primeiro envie um áudio (mensagem de voz ou arquivo), depois o vídeo.",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
+
+    is_admin = (uid == ADMIN_USER_ID)
+    had_paid = user_credits.get(uid, 0) > 0
+
+    # проверяем лимиты
     if not (TEST_MODE and is_admin):
         if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
             await message.answer(tr(uid, "free_used"))
             return
 
+    # получаем ссылку на видео-файл Telegram
+    file_info = await bot.get_file(message.video.file_id)
+    video_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
+    lang = get_lang(uid)
+    waiting_texts = {
+        "ua": "🎧 Роблю lip-sync: синхронізую губи відео з твоїм аудіо. Це може зайняти трохи часу…",
+        "en": "🎧 Doing lip-sync: syncing the video lips to your audio. This may take a bit…",
+        "es": "🎧 Haciendo lip-sync: sincronizando los labios del vídeo con tu audio. Puede tardar un poco…",
+        "pt": "🎧 Fazendo lip-sync: sincronizando os lábios do vídeo com seu áudio. Isso pode levar um pouco…",
+    }
+    msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
+
+    global gen_success, gen_fail
+
+    try:
+        result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
+        if not result.get("ok"):
+            gen_fail += 1
+            await msg.edit_text(tr(uid, "done"))
+            return
+
+        gen_success += 1
+        out_url = result["url"]
+
+        wm_map = {
+            "ua": "\n\n🔖 Озвучено в Magl’sBot (lip-sync)",
+            "en": "\n\n🔖 Dubbed with Magl’sBot (lip-sync)",
+            "es": "\n\n🔖 Doblado con Magl’sBot (lip-sync)",
+            "pt": "\n\n🔖 Dublado com Magl’sBot (lip-sync)",
+        }
+        watermark_suffix = wm_map.get(lang, "\n\n🔖 Dubbed with Magl’sBot (lip-sync)")
+
+        await msg.delete()
+
+        await bot.send_video(
+            chat_id=message.chat.id,
+            video=out_url,
+            caption=tr(uid, "done") + watermark_suffix,
+            reply_markup=buy_cta_keyboard(uid),
+        )
+
+        # списываем кредиты / free-лимит
+        if not (TEST_MODE and is_admin):
+            if had_paid and user_credits.get(uid, 0) > 0:
+                user_credits[uid] -= 1
+            else:
+                limiter.mark_used(uid)
+
+        # можно сбросить аудио, чтобы следующее видео было уже под новое
+        user_dub_audio.pop(uid, None)
+
+    except Exception as e:
+        gen_fail += 1
+        logger.exception("Lipsync error: %s", e)
+        try:
+            await msg.edit_text("Error while processing lip-sync. Try another video or audio.")
+        except Exception:
+            await message.answer("Error while processing lip-sync. Try another video or audio.")
+
+    
     photo = message.photo[-1]
 
     width = photo.width
