@@ -1799,44 +1799,44 @@ async def on_video(message: Message):
         "es": "🎧 Haciendo lip-sync: sincronizando los labios del vídeo con tu audio. Puede tardar un poco…",
         "pt": "🎧 Fazendo lip-sync: sincronizando os lábios do vídeo com seu áudio. Isso pode levar um pouco…",
     }
-    msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
+msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
 
     global gen_success, gen_fail
 
-try:
-    result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
-except Exception as e:
-    gen_fail += 1
-    await msg.edit_text(f"⚠️ Lip-sync exception: {e}")
-    return
+    try:
+        result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
+    except Exception as e:
+        gen_fail += 1
+        await msg.edit_text(f"⚠️ Lip-sync exception: {e}")
+        return
 
-if not result.get("ok"):
-    gen_fail += 1
-    err = result.get("error") or "unknown_error"
-    await msg.edit_text(f"⚠️ Lip-sync error: {err}")
-    return
+    if not result.get("ok"):
+        gen_fail += 1
+        err = result.get("error") or "unknown_error"
+        await msg.edit_text(f"⚠️ Lip-sync error: {err}")
+        return
 
-gen_success += 1
-out_url = result["url"]
+    gen_success += 1
+    out_url = result["url"]
 
-        wm_map = {
-            "ua": "\n\n🔖 Озвучено в Magl’sBot (lip-sync)",
-            "en": "\n\n🔖 Dubbed with Magl’sBot (lip-sync)",
-            "es": "\n\n🔖 Doblado con Magl’sBot (lip-sync)",
-            "pt": "\n\n🔖 Dublado com Magl’sBot (lip-sync)",
-        }
-        watermark_suffix = wm_map.get(lang, "\n\n🔖 Dubbed with Magl’sBot (lip-sync)")
+    wm_map = {
+        "ua": "\n\n🔖 Озвучено в Magl’sBot (lip-sync)",
+        "en": "\n\n🔖 Dubbed with Magl’sBot (lip-sync)",
+        "es": "\n\n🔖 Doblado con Magl’sBot (lip-sync)",
+        "pt": "\n\n🔖 Dublado com Magl’sBot (lip-sync)",
+    }
+    watermark_suffix = wm_map.get(lang, "\n\n🔖 Dubbed with Magl’sBot (lip-sync)")
 
-        await msg.delete()
+    await msg.delete()
 
-        await bot.send_video(
-            chat_id=message.chat.id,
-            video=out_url,
-            caption=tr(uid, "done") + watermark_suffix,
-            reply_markup=buy_cta_keyboard(uid),
-        )
+    await bot.send_video(
+        chat_id=message.chat.id,
+        video=out_url,
+        caption=tr(uid, "done") + watermark_suffix,
+        reply_markup=buy_cta_keyboard(uid),
+    )
 
-        # списываем кредиты / free-лимит
+    # списываем кредиты / free-лимит
         if not (TEST_MODE and is_admin):
             if had_paid and user_credits.get(uid, 0) > 0:
                 user_credits[uid] -= 1
