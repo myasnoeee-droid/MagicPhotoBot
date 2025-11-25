@@ -1803,18 +1803,21 @@ async def on_video(message: Message):
 
     global gen_success, gen_fail
 
-    try:
-        result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
+try:
+    result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
+except Exception as e:
+    gen_fail += 1
+    await msg.edit_text(f"⚠️ Lip-sync exception: {e}")
+    return
 
-    if not result.get("ok"):
-        gen_fail += 1
-        err = result.get("error") or "unknown_error"
-        # Покажем ошибку, а не "готово"
-        await msg.edit_text(f"⚠️ Lip-sync error: {err}")
-        return
+if not result.get("ok"):
+    gen_fail += 1
+    err = result.get("error") or "unknown_error"
+    await msg.edit_text(f"⚠️ Lip-sync error: {err}")
+    return
 
-        gen_success += 1
-        out_url = result["url"]
+gen_success += 1
+out_url = result["url"]
 
         wm_map = {
             "ua": "\n\n🔖 Озвучено в Magl’sBot (lip-sync)",
