@@ -1046,7 +1046,6 @@ async def on_lang_set(query: CallbackQuery):
     "1️⃣ Оживити фото\n"
     "2️⃣ Озвучити відео",
     reply_markup=model_selection_keyboard(uid)
-)
     )
     await query.answer()
 
