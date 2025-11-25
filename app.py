@@ -136,8 +136,7 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=t1, callback_data="mode:animate")],
             [InlineKeyboardButton(text=t2, callback_data="mode:lipsync")],
-        ]
-        
+        ]    
     )
 
 # ---------- Пресеты (региональные) ----------
