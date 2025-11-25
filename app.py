@@ -1755,7 +1755,6 @@ async def on_video(message: Message):
 
     # видео для липсинка только в режиме DUB
     if get_mode(uid) != MODE_DUB:
-        # можно мягко подсказать
         lang = get_lang(uid)
         texts = {
             "ua": "Щоб озвучити відео (lip-sync), спочатку обери режим озвучки після /start.",
@@ -1766,7 +1765,7 @@ async def on_video(message: Message):
         await message.answer(texts.get(lang, texts["en"]))
         return
 
-    # проверяем, что есть аудио
+    # проверяем, что есть сохранённое аудио
     audio_url = user_dub_audio.get(uid)
     if not audio_url:
         lang = get_lang(uid)
@@ -1799,7 +1798,7 @@ async def on_video(message: Message):
         "es": "🎧 Haciendo lip-sync: sincronizando los labios del vídeo con tu audio. Puede tardar un poco…",
         "pt": "🎧 Fazendo lip-sync: sincronizando os lábios do vídeo com seu áudio. Isso pode levar um pouco…",
     }
-msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
+    msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
 
     global gen_success, gen_fail
 
@@ -1816,8 +1815,18 @@ msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
         await msg.edit_text(f"⚠️ Lip-sync error: {err}")
         return
 
+    # если всё ок →
     gen_success += 1
     out_url = result["url"]
+
+    # Скачаем файл, чтобы отправить как видео-файл, а не ссылку
+    tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"lipsync_{uid}.mp4")
+    try:
+        await download_file(out_url, tmp_path)
+    except Exception as e:
+        gen_fail += 1
+        await msg.edit_text(f"⚠️ Download error: {e}")
+        return
 
     wm_map = {
         "ua": "\n\n🔖 Озвучено в Magl’sBot (lip-sync)",
@@ -1831,28 +1840,25 @@ msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
 
     await bot.send_video(
         chat_id=message.chat.id,
-        video=out_url,
+        video=FSInputFile(tmp_path),
         caption=tr(uid, "done") + watermark_suffix,
         reply_markup=buy_cta_keyboard(uid),
     )
 
     # списываем кредиты / free-лимит
-        if not (TEST_MODE and is_admin):
-            if had_paid and user_credits.get(uid, 0) > 0:
-                user_credits[uid] -= 1
-            else:
-                limiter.mark_used(uid)
+    if not (TEST_MODE and is_admin):
+        if had_paid and user_credits.get(uid, 0) > 0:
+            user_credits[uid] -= 1
+        else:
+            limiter.mark_used(uid)
 
-        # можно сбросить аудио, чтобы следующее видео было уже под новое
-        user_dub_audio.pop(uid, None)
+    # сбрасываем аудио, чтобы следующее видео было под новое
+    user_dub_audio.pop(uid, None)
 
-    except Exception as e:
-        gen_fail += 1
-        logger.exception("Lipsync error: %s", e)
-        try:
-            await msg.edit_text("Error while processing lip-sync. Try another video or audio.")
-        except Exception:
-            await message.answer("Error while processing lip-sync. Try another video or audio.")
+    try:
+        os.remove(tmp_path)
+    except Exception:
+        pass
 
     
     photo = message.photo[-1]
