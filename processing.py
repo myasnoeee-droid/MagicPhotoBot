@@ -144,3 +144,60 @@ async def download_file(url: str, dst_path: str):
                         f.write(chunk)
 
     await loop.run_in_executor(None, _download)
+async def lipsync_via_replicate(
+    audio_url: str,
+    video_url: str,
+) -> Dict[str, Any]:
+    """
+    Озвучка видео через модель pixverse/lipsync
+    Возвращает dict:
+    { "ok": True, "url": "..." } или ошибку
+    """
+
+    REPLICATE_LIPSYNC_MODEL = os.getenv("REPLICATE_LIPSYNC_MODEL")
+    if not REPLICATE_API_TOKEN or not REPLICATE_LIPSYNC_MODEL:
+        logger.error("Lipsync model or token not set")
+        return {"ok": False, "error": "no_replicate_lipsync"}
+
+    headers = {
+        "Authorization": f"Token {REPLICATE_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "version": REPLICATE_LIPSYNC_MODEL,
+        "input": {
+            "audio": audio_url,
+            "video": video_url
+        }
+    }
+
+    timeout = aiohttp.ClientTimeout(total=600)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        try:
+            async with session.post(REPLICATE_API_URL, headers=headers, json=payload) as resp:
+                if resp.status != 201:
+                    text = await resp.text()
+                    return {"ok": False, "error": text}
+                pred = await resp.json()
+        except Exception as e:
+            logger.exception("Lipsync create exception: %s", e)
+            return {"ok": False, "error": "create_exception"}
+
+        get_url = pred["urls"]["get"]
+
+        # Polling
+        for _ in range(120):
+            await asyncio.sleep(1)
+            async with session.get(get_url, headers=headers) as r2:
+                data = await r2.json()
+                if data["status"] == "succeeded":
+                    out = data["output"]
+                    if isinstance(out, list) and len(out) > 0:
+                        return {"ok": True, "url": out[0]}
+                    return {"ok": False, "error": "no_output_url"}
+                if data["status"] in ("failed", "canceled"):
+                    return {"ok": False, "error": data["status"]}
+
+        return {"ok": False, "error": "timeout"}
