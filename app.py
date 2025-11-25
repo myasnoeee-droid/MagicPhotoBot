@@ -189,7 +189,9 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
-    def model_selection_keyboard(uid: int) -> InlineKeyboardMarkup:
+
+
+def model_selection_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
 
     texts = {
@@ -206,6 +208,7 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=t2, callback_data="mode:lipsync")],
         ]
     )
+
 # ---------- Пресеты (региональные) ----------
 
 PRESET_PROMPTS_BASE = [
