@@ -1,5 +1,4 @@
 import os
-import time
 import asyncio
 import logging
 from typing import Optional, Dict, Any
@@ -10,45 +9,52 @@ import aiohttp  # используем для неблокирующих зап�
 logger = logging.getLogger("processing")
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")
-REPLICATE_LIPSYNC_MODEL = os.getenv("REPLICATE_LIPSYNC_MODEL")
+REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")  # модель для анимации фото
+REPLICATE_LIPSYNC_MODEL = os.getenv("REPLICATE_LIPSYNC_MODEL")  # модель для lipsync
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
 
+
+# ---------- АНИМАЦИЯ ФОТО ----------
 
 async def animate_photo_via_replicate(
     source_image_url: str,
     prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Запрашивает анимацию у Replicate и возвращает dict:
-    { "ok": True, "url": "https://..." } или { "ok": False, "error": "..." }
-
-    ВАЖНО: сейчас эта функция неблокирующая:
-    - использует aiohttp
-    - ждёт статусы через asyncio.sleep()
+    Анимация фото через Replicate.
+    Возвращает dict:
+      { "ok": True, "url": "https://..." }
+      или
+      { "ok": False, "error": "..." }
     """
 
     if not REPLICATE_API_TOKEN or not REPLICATE_MODEL:
-        logger.error("Replicate credentials/model are not set")
+        logger.error("Replicate credentials/model are not set for animate_photo_via_replicate")
         return {"ok": False, "error": "no_replicate_credentials"}
+
+    # REPLICATE_MODEL может быть как:
+    # - "owner/model:HASH"
+    # - так и просто "HASH"
+    raw_model = REPLICATE_MODEL.strip()
+    if ":" in raw_model:
+        version = raw_model.split(":")[-1]
+    else:
+        version = raw_model
 
     headers = {
         "Authorization": f"Token {REPLICATE_API_TOKEN}",
         "Content-Type": "application/json",
     }
 
-    # Общий формат для WAN / i2v моделей:
-    # "image" + (опционально) "prompt"
     input_payload: Dict[str, Any] = {
         "image": source_image_url,
     }
     if prompt:
-        # если промпт есть — добавляем
         input_payload["prompt"] = prompt
 
     payload = {
-        "version": REPLICATE_MODEL,
+        "version": version,
         "input": input_payload,
     }
 
@@ -64,9 +70,7 @@ async def animate_photo_via_replicate(
             ) as resp:
                 if resp.status != 201:
                     text = await resp.text()
-                    logger.error(
-                        "Replicate create failed: %s %s", resp.status, text
-                    )
+                    logger.error("Replicate create (photo) failed: %s %s", resp.status, text)
                     return {
                         "ok": False,
                         "error": "create_failed",
@@ -75,22 +79,22 @@ async def animate_photo_via_replicate(
                     }
                 pred = await resp.json()
         except Exception as e:
-            logger.exception("Replicate create exception: %s", e)
+            logger.exception("Replicate create (photo) exception: %s", e)
             return {"ok": False, "error": "create_exception"}
 
         get_url = pred.get("urls", {}).get("get")
         if not get_url:
-            logger.error("Replicate: no get URL in response")
+            logger.error("Replicate (photo): no get URL in response")
             return {"ok": False, "error": "no_get_url"}
 
-        # 2) Ожидаем завершения (polling), НЕ блокируя event loop
+        # 2) Ожидаем завершения (polling)
         for _ in range(120):  # до ~2 минут
             await asyncio.sleep(1)
             try:
                 async with session.get(get_url, headers=headers) as resp2:
                     data = await resp2.json()
             except Exception as e:
-                logger.exception("Replicate poll exception: %s", e)
+                logger.exception("Replicate poll (photo) exception: %s", e)
                 continue
 
             status = data.get("status")
@@ -118,15 +122,20 @@ async def animate_photo_via_replicate(
                     if url:
                         return {"ok": True, "url": url}
                     else:
-                        logger.error("Replicate succeeded but no output URL")
+                        logger.error("Replicate (photo) succeeded but no output URL")
                         return {"ok": False, "error": "no_output_url"}
-                else:
-                    logger.error("Replicate status: %s", status)
-                    return {"ok": False, "error": status}
 
-        logger.error("Replicate timeout")
+                else:
+                    # пробуем достать текст ошибки
+                    err_msg = data.get("error") or data.get("logs") or status
+                    logger.error("Replicate (photo) status=%s, error=%s", status, err_msg)
+                    return {"ok": False, "error": err_msg}
+
+        logger.error("Replicate (photo) timeout")
         return {"ok": False, "error": "timeout"}
 
+
+# ---------- LIP-SYNC ВИДЕО + АУДИО ----------
 
 async def lipsync_video_with_audio(
     video_url: str,
@@ -134,7 +143,13 @@ async def lipsync_video_with_audio(
 ) -> Dict[str, Any]:
     """
     Делает lip-sync видео через модель pixverse/lipsync на Replicate.
+    На вход подаём URL видео и URL аудио (Replicate сам их скачает).
+    Возвращает dict:
+      { "ok": True, "url": "https://..." }
+      или
+      { "ok": False, "error": "..." }
     """
+
     if not REPLICATE_API_TOKEN or not REPLICATE_LIPSYNC_MODEL:
         logger.error("Replicate lipsync credentials/model are not set")
         return {"ok": False, "error": "no_replicate_lipsync_credentials"}
@@ -173,9 +188,7 @@ async def lipsync_video_with_audio(
             ) as resp:
                 if resp.status != 201:
                     text = await resp.text()
-                    logger.error(
-                        "Replicate lipsync create failed: %s %s", resp.status, text
-                    )
+                    logger.error("Replicate lipsync create failed: %s %s", resp.status, text)
                     return {
                         "ok": False,
                         "error": "create_failed",
@@ -224,11 +237,16 @@ async def lipsync_video_with_audio(
                         logger.error("Replicate lipsync succeeded but no output URL")
                         return {"ok": False, "error": "no_output_url"}
                 else:
-                    logger.error("Replicate lipsync status: %s", status)
-                    return {"ok": False, "error": status}
+                    # Достаём подробности ошибки из ответа Replicate
+                    err_msg = data.get("error") or data.get("logs") or status
+                    logger.error("Replicate lipsync status=%s, error=%s", status, err_msg)
+                    return {"ok": False, "error": err_msg}
 
         logger.error("Replicate lipsync timeout")
         return {"ok": False, "error": "timeout"}
+
+
+# ---------- СКАЧИВАНИЕ ФАЙЛОВ ----------
 
 async def download_file(url: str, dst_path: str):
     """
@@ -247,60 +265,3 @@ async def download_file(url: str, dst_path: str):
                         f.write(chunk)
 
     await loop.run_in_executor(None, _download)
-async def lipsync_via_replicate(
-    audio_url: str,
-    video_url: str,
-) -> Dict[str, Any]:
-    """
-    Озвучка видео через модель pixverse/lipsync
-    Возвращает dict:
-    { "ok": True, "url": "..." } или ошибку
-    """
-
-    REPLICATE_LIPSYNC_MODEL = os.getenv("REPLICATE_LIPSYNC_MODEL")
-    if not REPLICATE_API_TOKEN or not REPLICATE_LIPSYNC_MODEL:
-        logger.error("Lipsync model or token not set")
-        return {"ok": False, "error": "no_replicate_lipsync"}
-
-    headers = {
-        "Authorization": f"Token {REPLICATE_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "version": REPLICATE_LIPSYNC_MODEL,
-        "input": {
-            "audio": audio_url,
-            "video": video_url
-        }
-    }
-
-    timeout = aiohttp.ClientTimeout(total=600)
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        try:
-            async with session.post(REPLICATE_API_URL, headers=headers, json=payload) as resp:
-                if resp.status != 201:
-                    text = await resp.text()
-                    return {"ok": False, "error": text}
-                pred = await resp.json()
-        except Exception as e:
-            logger.exception("Lipsync create exception: %s", e)
-            return {"ok": False, "error": "create_exception"}
-
-        get_url = pred["urls"]["get"]
-
-        # Polling
-        for _ in range(120):
-            await asyncio.sleep(1)
-            async with session.get(get_url, headers=headers) as r2:
-                data = await r2.json()
-                if data["status"] == "succeeded":
-                    out = data["output"]
-                    if isinstance(out, list) and len(out) > 0:
-                        return {"ok": True, "url": out[0]}
-                    return {"ok": False, "error": "no_output_url"}
-                if data["status"] in ("failed", "canceled"):
-                    return {"ok": False, "error": data["status"]}
-
-        return {"ok": False, "error": "timeout"}
