@@ -197,25 +197,6 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def model_selection_keyboard(uid: int) -> InlineKeyboardMarkup:
-    lang = get_lang(uid)
-
-    texts = {
-        "ua": ("🪄 Оживити фото", "🎙 Озвучити відео"),
-        "en": ("🪄 Animate photo", "🎙 Voice-over video"),
-        "es": ("🪄 Animar foto", "🎙 Dub video"),
-        "pt": ("🪄 Animar foto", "🎙 Dublar vídeo"),
-    }
-    t1, t2 = texts.get(lang, texts["en"])
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t1, callback_data="mode:animate")],
-            [InlineKeyboardButton(text=t2, callback_data="mode:lipsync")],
-        ]
-    )
-
-
 
 
 # ---------- Пресеты (региональные) ----------
