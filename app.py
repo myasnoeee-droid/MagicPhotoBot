@@ -1798,6 +1798,7 @@ async def on_video(message: Message):
         "es": "🎧 Haciendo lip-sync: sincronizando los labios del vídeo con tu audio. Puede tardar un poco…",
         "pt": "🎧 Fazendo lip-sync: sincronizando os lábios do vídeo com seu áudio. Isso pode levar um pouco…",
     }
+    
    msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
 
     global gen_success, gen_fail
