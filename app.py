@@ -209,6 +209,9 @@ def model_selection_keyboard(uid: int) -> InlineKeyboardMarkup:
         ]
     )
 
+
+
+
 # ---------- Пресеты (региональные) ----------
 
 PRESET_PROMPTS_BASE = [
