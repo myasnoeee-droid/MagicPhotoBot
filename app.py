@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 from limiter import FreeUsageLimiter
 from processing import animate_photo_via_replicate, download_file
-from processing import animate_photo_via_replicate, download_file, lipsync_video_with_audio
+from processing import animate_photo_via_replicate, download_file, omni_lipsync
 
 load_dotenv()
 
@@ -1798,15 +1798,15 @@ async def on_video(message: Message):
         "es": "🎧 Haciendo lip-sync: sincronizando los labios del vídeo con tu audio. Puede tardar un poco…",
         "pt": "🎧 Fazendo lip-sync: sincronizando os lábios do vídeo com seu áudio. Isso pode levar um pouco…",
     }
-    msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
+   msg = await message.answer(waiting_texts.get(lang, waiting_texts["en"]))
 
     global gen_success, gen_fail
 
     try:
-        result = await lipsync_video_with_audio(video_url=video_url, audio_url=audio_url)
+        result = await omni_lipsync(video_url=video_url, audio_url=audio_url)
     except Exception as e:
         gen_fail += 1
-        await msg.edit_text(f"⚠️ Lip-sync exception: {e}")
+        await msg.edit_text(f"⚠️ Omni lip-sync exception: {e}")
         return
 
     if not result.get("ok"):
