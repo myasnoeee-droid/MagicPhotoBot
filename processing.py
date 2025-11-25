@@ -9,13 +9,13 @@ import aiohttp  # используем для неблокирующих зап�
 logger = logging.getLogger("processing")
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")  # модель для анимации фото
-REPLICATE_LIPSYNC_MODEL = os.getenv("REPLICATE_LIPSYNC_MODEL")  # модель для lipsync
+REPLICATE_MODEL = os.getenv("REPLICATE_MODEL")          # модель для анимации фото
+REPLICATE_OMNI_MODEL = os.getenv("REPLICATE_OMNI_MODEL")  # модель bytedance/omni-human-1.5
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
 
 
-# ---------- АНИМАЦИЯ ФОТО ----------
+# ---------- АНИМАЦИЯ ФОТО (как было) ----------
 
 async def animate_photo_via_replicate(
     source_image_url: str,
@@ -33,9 +33,9 @@ async def animate_photo_via_replicate(
         logger.error("Replicate credentials/model are not set for animate_photo_via_replicate")
         return {"ok": False, "error": "no_replicate_credentials"}
 
-    # REPLICATE_MODEL может быть как:
+    # REPLICATE_MODEL может быть:
     # - "owner/model:HASH"
-    # - так и просто "HASH"
+    # - или просто "HASH"
     raw_model = REPLICATE_MODEL.strip()
     if ":" in raw_model:
         version = raw_model.split(":")[-1]
@@ -47,9 +47,7 @@ async def animate_photo_via_replicate(
         "Content-Type": "application/json",
     }
 
-    input_payload: Dict[str, Any] = {
-        "image": source_image_url,
-    }
+    input_payload: Dict[str, Any] = {"image": source_image_url}
     if prompt:
         input_payload["prompt"] = prompt
 
@@ -103,7 +101,6 @@ async def animate_photo_via_replicate(
                     out = data.get("output")
                     url = None
 
-                    # большинство моделей возвращают список ссылок
                     if isinstance(out, list) and out:
                         for u in out:
                             if isinstance(u, str) and (
@@ -126,7 +123,6 @@ async def animate_photo_via_replicate(
                         return {"ok": False, "error": "no_output_url"}
 
                 else:
-                    # пробуем достать текст ошибки
                     err_msg = data.get("error") or data.get("logs") or status
                     logger.error("Replicate (photo) status=%s, error=%s", status, err_msg)
                     return {"ok": False, "error": err_msg}
@@ -135,29 +131,25 @@ async def animate_photo_via_replicate(
         return {"ok": False, "error": "timeout"}
 
 
-# ---------- LIP-SYNC ВИДЕО + АУДИО ----------
+# ---------- LIP-SYNC ЧЕРЕЗ BYTEDANCE / OMNI-HUMAN ----------
 
-async def lipsync_video_with_audio(
+async def omni_lipsync(
     video_url: str,
     audio_url: str,
 ) -> Dict[str, Any]:
     """
-    Делает lip-sync видео через модель pixverse/lipsync на Replicate.
-    На вход подаём URL видео и URL аудио (Replicate сам их скачает).
-    Возвращает dict:
-      { "ok": True, "url": "https://..." }
-      или
-      { "ok": False, "error": "..." }
+    Lip-sync видео через модель bytedance/omni-human-1.5 на Replicate.
+    На вход: URL видео (Telegram mp4) и URL аудио (voice/audio/file от Telegram).
     """
 
-    if not REPLICATE_API_TOKEN or not REPLICATE_LIPSYNC_MODEL:
-        logger.error("Replicate lipsync credentials/model are not set")
-        return {"ok": False, "error": "no_replicate_lipsync_credentials"}
+    if not REPLICATE_API_TOKEN or not REPLICATE_OMNI_MODEL:
+        logger.error("Replicate omni-human credentials/model are not set")
+        return {"ok": False, "error": "no_omni_model"}
 
-    # REPLICATE_LIPSYNC_MODEL может быть как:
-    # - "pixverse/lipsync:HASH"
-    # - так и просто "HASH"
-    raw = REPLICATE_LIPSYNC_MODEL.strip()
+    # REPLICATE_OMNI_MODEL может быть:
+    # - "bytedance/omni-human-1.5:HASH"
+    # - или просто "HASH"
+    raw = REPLICATE_OMNI_MODEL.strip()
     if ":" in raw:
         version = raw.split(":")[-1]
     else:
@@ -168,11 +160,14 @@ async def lipsync_video_with_audio(
         "Content-Type": "application/json",
     }
 
+    # Входы omni-human:
+    # source_video — видео с лицом
+    # driven_audio — аудио, по которому двигаются губы
     payload: Dict[str, Any] = {
         "version": version,
         "input": {
-            "video": video_url,
-            "audio": audio_url,
+            "source_video": video_url,
+            "driven_audio": audio_url,
         },
     }
 
@@ -188,7 +183,7 @@ async def lipsync_video_with_audio(
             ) as resp:
                 if resp.status != 201:
                     text = await resp.text()
-                    logger.error("Replicate lipsync create failed: %s %s", resp.status, text)
+                    logger.error("Replicate omni create failed: %s %s", resp.status, text)
                     return {
                         "ok": False,
                         "error": "create_failed",
@@ -197,12 +192,12 @@ async def lipsync_video_with_audio(
                     }
                 pred = await resp.json()
         except Exception as e:
-            logger.exception("Replicate lipsync create exception: %s", e)
+            logger.exception("Replicate omni create exception: %s", e)
             return {"ok": False, "error": "create_exception"}
 
         get_url = pred.get("urls", {}).get("get")
         if not get_url:
-            logger.error("Replicate lipsync: no get URL in response")
+            logger.error("Replicate omni: no get URL in response")
             return {"ok": False, "error": "no_get_url"}
 
         # 2) Ожидаем завершения (polling)
@@ -212,7 +207,7 @@ async def lipsync_video_with_audio(
                 async with session.get(get_url, headers=headers) as resp2:
                     data = await resp2.json()
             except Exception as e:
-                logger.exception("Replicate lipsync poll exception: %s", e)
+                logger.exception("Replicate omni poll exception: %s", e)
                 continue
 
             status = data.get("status")
@@ -222,6 +217,7 @@ async def lipsync_video_with_audio(
                     url = None
 
                     if isinstance(out, list) and out:
+                        # omni обычно возвращает список URL'ов
                         for u in out:
                             if isinstance(u, str) and ("mp4" in u or u.endswith(".mp4")):
                                 url = u
@@ -234,15 +230,15 @@ async def lipsync_video_with_audio(
                     if url:
                         return {"ok": True, "url": url}
                     else:
-                        logger.error("Replicate lipsync succeeded but no output URL")
+                        logger.error("Replicate omni succeeded but no output URL")
                         return {"ok": False, "error": "no_output_url"}
+
                 else:
-                    # Достаём подробности ошибки из ответа Replicate
                     err_msg = data.get("error") or data.get("logs") or status
-                    logger.error("Replicate lipsync status=%s, error=%s", status, err_msg)
+                    logger.error("Replicate omni status=%s, error=%s", status, err_msg)
                     return {"ok": False, "error": err_msg}
 
-        logger.error("Replicate lipsync timeout")
+        logger.error("Replicate omni timeout")
         return {"ok": False, "error": "timeout"}
 
 
@@ -251,7 +247,6 @@ async def lipsync_video_with_audio(
 async def download_file(url: str, dst_path: str):
     """
     Загрузка файла по URL в отдельном потоке, чтобы не блокировать event loop.
-    Тут можно оставить requests + run_in_executor — это нормально.
     """
     loop = asyncio.get_running_loop()
 
