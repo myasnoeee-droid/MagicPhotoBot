@@ -8,8 +8,9 @@
   "menu_balance": "💰 Balance",
   "menu_support": "🆘 Soporte",
   "menu_share": "📤 Compartir",
+  "menu_omni": "🧠 Cabeza parlante (Omni)",
 
-  "pricing": "💫 <b>Precios de Magl’sBot</b>\\n\\n🆓 1 animación gratis — para probar.\\n\\n✨ <b>Paquetes:</b>\\n\\n• <b>1 animación — 60 ⭐</b>\\nPara probar fotos antiguas.\\n\\n• <b>3 animaciones — 150 ⭐</b> ⭐ La más popular\\nMejor relación calidad-precio.\\n\\n• <b>5 animaciones — 300 ⭐</b>\\nPerfecto para álbumes familiares.\\n\\n• <b>10 animaciones — 500 ⭐</b>\\nGran oferta — solo 50⭐ por animación.\\n\\n⚡ Pago instantáneo. Los créditos se añaden automáticamente.",
+  "pricing": "💫 <b>Tarifas de Magl’sBot</b>\n\n🆓 1 animación gratis — para probar.\n\n✨ <b>Paquetes de pago:</b>\n\n• <b>1 animación — 60 ⭐</b>\nPerfecto para probar incluso fotos antiguas.\n\n• <b>3 animaciones — 150 ⭐</b> ⭐ Popular\nLa mejor relación calidad-precio.\n\n• <b>5 animaciones — 300 ⭐</b>\nPara archivos familiares y colecciones.\n\n• <b>10 animaciones — 500 ⭐</b>\nMáximo valor: solo 50⭐ por foto.\n\n🧠 <b>Cabeza parlante (OmniHuman)</b>\n• <b>400 ⭐</b> por vídeo (foto + audio).\n\n⚡ Pago instantáneo. Los créditos se añaden automáticamente."
   "buy_title": "💫 Elige un paquete de animaciones mágicas:",
   "balance_title": "💰 Tu balance: <b>{credits}</b> animaciones.",
   "free_used": "🆓 Ya has usado tu animación gratuita. Elige un paquete ⭐ para continuar.",
