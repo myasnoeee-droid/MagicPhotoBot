@@ -43,6 +43,7 @@ SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # чат/канал д
 ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
+OMNI_PRICE = 400
 
 # Заставка — оживлённое видео Гарри Поттера
 INTRO_VIDEO_FILE_ID = os.getenv(
@@ -1794,20 +1795,32 @@ async def on_audio_omni(message: Message):
         await message.answer(texts.get(lang, texts["en"]))
         return
 
-    is_admin = (uid == ADMIN_USER_ID)
-    had_paid = user_credits.get(uid, 0) > 0
+    lang = get_lang(uid)
 
-    if not (TEST_MODE and is_admin):
-        if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
-            await message.answer(tr(uid, "free_used"))
-            return
+    # ---- ПРОВЕРКА СТАРОВ ДЛЯ OMNI ----
+    credits = user_credits.get(uid, 0)
+    if credits < OMNI_PRICE:
+        not_enough_texts = {
+            "ua": f"🧠 Режим говорячої голови коштує <b>{OMNI_PRICE} Stars</b>.\n"
+                  f"У тебе зараз {credits} ⭐️.\n\nНатисни кнопку нижче, щоб поповнити баланс.",
+            "en": f"🧠 Talking head mode costs <b>{OMNI_PRICE} Stars</b>.\n"
+                  f"You now have {credits} ⭐️.\n\nTap the button below to top up.",
+            "es": f"🧠 El modo cabeza parlante cuesta <b>{OMNI_PRICE} Stars</b>.\n"
+                  f"Ahora tienes {credits} ⭐️.\n\nPulsa el botón de abajo para recargar.",
+            "pt": f"🧠 O modo cabeça falante custa <b>{OMNI_PRICE} Stars</b>.\n"
+                  f"Você tem {credits} ⭐️.\n\nToque no botão abaixo para recarregar.",
+        }
+        await message.answer(
+            not_enough_texts.get(lang, not_enough_texts["en"]),
+            reply_markup=buy_cta_keyboard(uid),
+        )
+        return
 
-    # URL аудио
+    # ---- Получаем URL аудио из Telegram ----
     audio_file_id = message.audio.file_id if message.audio else message.voice.file_id
     file_info_a = await bot.get_file(audio_file_id)
     audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info_a.file_path}"
 
-    lang = get_lang(uid)
     msg = await message.answer(
         {
             "ua": "🎧 Створюю відео…",
@@ -1836,32 +1849,39 @@ async def on_audio_omni(message: Message):
 
     tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"omni_{uid}.mp4")
     try:
+        # качаем файл, чтобы отправить как видео
         await download_file(out_url, tmp_path)
 
         try:
             await msg.delete()
-        except:
+        except Exception:
             pass
+
+        wm_map = {
+            "ua": "\n\n🔖 Зроблено в Magl’sBot (OmniHuman)",
+            "en": "\n\n🔖 Made with Magl’sBot (OmniHuman)",
+            "es": "\n\n🔖 Hecho con Magl’sBot (OmniHuman)",
+            "pt": "\n\n🔖 Feito com Magl’sBot (OmniHuman)",
+        }
+        watermark_suffix = wm_map.get(lang, wm_map["en"])
 
         await bot.send_video(
             chat_id=message.chat.id,
             video=FSInputFile(tmp_path),
-            caption=tr(uid, "done") + "\n\n🔖 Made with Magl’sBot (OmniHuman)",
+            caption=tr(uid, "done") + watermark_suffix,
             reply_markup=buy_cta_keyboard(uid),
         )
 
-        if not (TEST_MODE and is_admin):
-            if had_paid and user_credits.get(uid, 0) > 0:
-                user_credits[uid] -= 1
-            else:
-                limiter.mark_used(uid)
+        # 💰 списываем 400 Stars за Omni
+        user_credits[uid] = max(0, credits - OMNI_PRICE)
 
     finally:
         try:
             os.remove(tmp_path)
-        except:
+        except Exception:
             pass
 
+    # очищаем сохранённое фото, чтобы следующая Omni была с новым фото
     omni_pending_photo.pop(uid, None)
 
 
