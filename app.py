@@ -12,8 +12,7 @@ from db import (
     ensure_user,
     has_used_free,
     mark_free_used,
-    consume_credit,
-    register_referral as db_register_referral,  # 👈 добавь
+    register_referral as db_register_referral,
 )
 from helpers_credits import (
     get_user_credits,
@@ -2117,12 +2116,9 @@ async def on_confirm_ok(query: CallbackQuery):
                 # это была первая (бесплатная) анимация
                 await mark_free_used(uid)
             else:
-                # бесплатка уже была — списываем 1 кредит
-                ok, new_balance = await consume_credit(uid, amount=1)
+                # бесплатка уже была — списываем 1 кредит через helpers_credits
+                ok, new_balance = await consume_user_credit(uid, 1)
 
-                # теоретически сюда не должны попасть без баланса,
-                # потому что на этапе on_photo мы это уже проверяли,
-                # но на всякий случай логируем
                 if not ok:
                     logger.warning("User %s has no credits at confirm stage", uid)
 
