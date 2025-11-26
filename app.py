@@ -2074,14 +2074,17 @@ async def on_confirm_ok(query: CallbackQuery):
         result = await animate_photo_via_replicate(
             source_image_url=file_url,
             prompt=prompt,
+       )
+
+    if not result.get("ok"):
+        gen_fail += 1
+        err = result.get("error") or "unknown"
+        logger.warning(f"Replicate error for user {uid}: {err}")
+        await query.message.edit_text(
+            "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
         )
-        if not result.get("ok"):
-    gen_fail += 1
-    err = result.get("error") or "unknown"
-    await query.message.edit_text(
-        "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
-    )
-    return
+        return
+
 
         gen_success += 1
 
