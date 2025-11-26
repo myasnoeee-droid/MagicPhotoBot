@@ -1315,9 +1315,25 @@ async def on_admin_action(query: CallbackQuery):
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
+
+    # Лейбл для Omni (1 відео = 400 Stars)
+    omni_labels = {
+        "ua": "🧠 1 відео Omni — 400 ⭐",
+        "en": "🧠 1 Omni video — 400 ⭐",
+        "es": "🧠 1 vídeo Omni — 400 ⭐",
+        "pt": "🧠 1 vídeo Omni — 400 ⭐",
+    }
+    omni_text = omni_labels.get(lang, omni_labels["en"])
+
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
     buttons = [
+        # OmniHuman покупка
+        InlineKeyboardButton(
+            text=omni_text,
+            callback_data="buy:omni",
+        ),
+        # Пакеты оживлений фото
         InlineKeyboardButton(
             text=popular_text,
             callback_data="buy:pack_3",
@@ -1347,9 +1363,24 @@ def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
+
+    omni_labels = {
+        "ua": "🧠 1 відео Omni — 400 ⭐",
+        "en": "🧠 1 Omni video — 400 ⭐",
+        "es": "🧠 1 vídeo Omni — 400 ⭐",
+        "pt": "🧠 1 vídeo Omni — 400 ⭐",
+    }
+    omni_text = omni_labels.get(lang, omni_labels["en"])
+
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
     buy_buttons = [
+        # OmniHuman сверху
+        InlineKeyboardButton(
+            text=omni_text,
+            callback_data="buy:omni",
+        ),
+        # Пакеты оживлений
         InlineKeyboardButton(
             text=popular_text,
             callback_data="buy:pack_3",
