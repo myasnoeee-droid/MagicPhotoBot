@@ -12,7 +12,8 @@ from db import (
     ensure_user,
     has_used_free,
     mark_free_used,
-    consume_credit,  
+    consume_credit,
+    register_referral as db_register_referral,  # 👈 добавь
 )
 from helpers_credits import (
     get_user_credits,
@@ -403,7 +404,6 @@ PACKS = {
     "pack_10": ("10 animations", 10, 500),
     "pack_25": ("25 animations", 25, 1000),
 }
-user_credits: Dict[int, int] = {}
 
 # ----- Рефералка -----
 ref_inviter: Dict[int, int] = {}        # invited_id -> inviter_id
@@ -518,18 +518,12 @@ def admin_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_admin_summary() -> str:
-    paid_users = [uid for uid, c in user_credits.items() if c > 0]
-    total_paid_credits = sum(user_credits.values())
-
     lines = []
     lines.append("🛠 <b>Admin Panel</b>")
     lines.append("")
     lines.append(f"🧪 Test mode: <b>{'ON' if TEST_MODE else 'OFF'}</b>")
     lines.append("")
-    lines.append(f"💳 Users with paid credits: <b>{len(paid_users)}</b>")
-    lines.append(f"💰 Total paid credits: <b>{total_paid_credits}</b>")
-    lines.append(f"🆓 Free users count: <b>{free_users_count}</b>")
-    lines.append(f"🆓 Free animations used: <b>{free_used_total}</b>")
+    lines.append(f"👥 Known users (session): <b>{len(known_users)}</b>")
     lines.append("")
     lines.append(f"🎞 Generations: success=<b>{gen_success}</b>, fail=<b>{gen_fail}</b>")
     lines.append("")
@@ -613,12 +607,13 @@ def get_ref_main_text(lang: str) -> str:
     return ""
 
 
-def build_referral_stats_text(uid: int) -> str:
+async def build_referral_stats_text(uid: int) -> str:
     lang = get_lang(uid)
     invited = ref_count.get(uid, 0)
     free_from_invites = invited // 3
     pending_stars = ref_stars_balance.get(uid, 0)
-    credits = user_credits.get(uid, 0)
+
+    credits = await get_user_credits(uid)  # 👈 из Postgres
 
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
@@ -738,20 +733,8 @@ def build_partner_dashboard_text(uid: int) -> str:
     invited_users = [u for u, inv in ref_inviter.items() if inv == uid]
     total = len(invited_users)
 
-    active = 0
-    payers = 0
-    free_usage = getattr(limiter, "_usage", {})
-
-    for u in invited_users:
-        used_free = False
-        if isinstance(free_usage, dict):
-            used_free = free_usage.get(u, 0) > 0
-
-        has_credits = user_credits.get(u, 0) > 0
-        if used_free or has_credits or (u in payer_users):
-            active += 1
-        if u in payer_users:
-            payers += 1
+    active = len(invited_users)
+    payers = sum(1 for u in invited_users if u in payer_users)
 
     bonus = ref_stars_total.get(uid, 0)
     total_users = len(known_users)
@@ -983,16 +966,24 @@ def get_ref_bonus_text(lang: str, bonus_stars: int, gained_credits: int, credits
 async def register_referral(new_user_id: int, inviter_id: int):
     if new_user_id == inviter_id:
         return
-    if new_user_id in ref_inviter:
+
+    # сначала пишем в Postgres, чтобы не было дублей
+    created = await db_register_referral(inviter_id=inviter_id, invited_id=new_user_id)
+    if not created:
+        # уже был такой реферал
         return
 
+    # дальше поддерживаем in-memory статистику
     ref_inviter[new_user_id] = inviter_id
     ref_count[inviter_id] = ref_count.get(inviter_id, 0) + 1
     count = ref_count[inviter_id]
 
     earned_free = 1 if (count % 3 == 0) else 0
     if earned_free:
-        user_credits[inviter_id] = user_credits.get(inviter_id, 0) + earned_free
+        # начисляем 1 бесплатную анимацию через БД
+        new_balance = await add_user_credits(inviter_id, earned_free, "referral_3_friends")
+    else:
+        new_balance = await get_user_credits(inviter_id)
 
     try:
         lang = get_lang(inviter_id)
@@ -1003,7 +994,7 @@ async def register_referral(new_user_id: int, inviter_id: int):
         if earned_free:
             msg_lines.append(
                 f"За кожні 3 запрошених — +1 безкоштовне оживлення.\n"
-                f"🎁 Ти щойно отримав +1! Зараз у тебе {user_credits[inviter_id]} кредитів."
+                f"🎁 Ти щойно отримав +1! Зараз у тебе {new_balance} кредитів."
             )
         else:
             left = 3 - (count % 3)
@@ -1224,8 +1215,11 @@ async def on_buy(message: Message):
 async def on_balance(message: Message):
     uid = message.from_user.id if message.from_user else 0
     register_user(uid)
+
+    credits = await get_user_credits(uid)  # 👈 из Postgres
+
     await message.answer(
-        tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
+        tr(uid, "balance_title").format(credits=credits)
     )
 
 
@@ -1286,26 +1280,21 @@ async def on_admin_action(query: CallbackQuery):
         return
 
     if action == "users":
-        all_ids = set(user_credits.keys())
-        try:
-            free_usage = getattr(limiter, "_usage", {})
-            all_ids.update(free_usage.keys())
-        except Exception:
-            free_usage = {}
+        all_ids = sorted(u for u in known_users if u > 0)
+
         if not all_ids:
             await query.message.edit_text("👥 No users yet.", reply_markup=admin_keyboard())
             await query.answer()
             return
 
         lines = ["👥 <b>Users snapshot</b> (top 50):"]
-        for i, u in enumerate(sorted(all_ids)):
+        for i, u in enumerate(all_ids):
             if i >= 50:
                 lines.append("… (truncated)")
                 break
             lang_u = get_lang(u)
-            paid = user_credits.get(u, 0)
-            fu = free_usage.get(u, 0) if isinstance(free_usage, dict) else "?"
-            lines.append(f"• id={u}, lang={lang_u}, paid={paid}, free_used={fu}")
+            lines.append(f"• id={u}, lang={lang_u}")
+
         text = "\n".join(lines)
         await query.message.edit_text(text, reply_markup=admin_keyboard())
         await query.answer("Users list")
@@ -1464,14 +1453,18 @@ async def on_payment(message: Message):
     uid = message.from_user.id if message.from_user else 0
     register_user(uid)
     payer_users.add(uid)
+
     sp = message.successful_payment
     payload = sp.invoice_payload
     pack = PACKS.get(payload)
     if not pack:
         await message.answer("Payment received, but pack not recognized. Contact admin.")
         return
+
     title, credits, amount = pack
-    user_credits[uid] = user_credits.get(uid, 0) + credits
+
+    # 👇 начисляем кредиты в Postgres
+    new_balance = await add_user_credits(uid, credits, f"purchase_{payload}")
 
     global pack_stats
     if payload in pack_stats:
@@ -1483,21 +1476,26 @@ async def on_payment(message: Message):
         total_stars = sp.total_amount
         bonus_stars = int(total_stars * 0.05)
         if bonus_stars > 0:
+            # реферальные Stars по-прежнему считаем в памяти
             ref_stars_total[inviter_id] = ref_stars_total.get(inviter_id, 0) + bonus_stars
             ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
 
             gained_credits = 0
             while ref_stars_balance[inviter_id] >= 60:
                 ref_stars_balance[inviter_id] -= 60
-                user_credits[inviter_id] = user_credits.get(inviter_id, 0) + 1
+                # 👇 за каждые 60 реф. Stars даём 1 анимацию в БД
+                await add_user_credits(inviter_id, 1, "referral_stars_convert")
                 gained_credits += 1
+
             try:
                 lang_inv = get_lang(inviter_id)
+                inviter_balance = await get_user_credits(inviter_id)  # 👈 из БД
+
                 text = get_ref_bonus_text(
                     lang_inv,
                     bonus_stars=bonus_stars,
                     gained_credits=gained_credits,
-                    credits_balance=user_credits.get(inviter_id, 0),
+                    credits_balance=inviter_balance,
                 )
                 await bot.send_message(inviter_id, text)
             except Exception as e:
@@ -1506,7 +1504,7 @@ async def on_payment(message: Message):
     await message.answer(
         tr(uid, "paid_ok").format(
             credits=credits,
-            balance=user_credits[uid],
+            balance=new_balance,  # 👈 баланс из БД
         )
     )
 
@@ -1559,10 +1557,14 @@ async def on_text(message: Message):
     if text == labels["balance"]:
         awaiting_support.pop(uid, None)
         awaiting_video_order.pop(uid, None)
+
+        credits = await get_user_credits(uid)  # 👈
+
         await message.answer(
-            tr(uid, "balance_title").format(credits=user_credits.get(uid, 0))
+            tr(uid, "balance_title").format(credits=credits)
         )
         return
+
 
     if text == labels["support"]:
         awaiting_video_order.pop(uid, None)
@@ -1708,7 +1710,9 @@ async def on_ref_share(query: CallbackQuery):
 async def on_ref_stats(query: CallbackQuery):
     uid = query.from_user.id
     register_user(uid)
-    text = build_referral_stats_text(uid)
+
+    text = await build_referral_stats_text(uid)  # 👈
+
     await query.message.answer(text)
     await query.answer()
 
@@ -1855,7 +1859,7 @@ async def on_audio_omni(message: Message):
     lang = get_lang(uid)
 
     # ---- ПРОВЕРКА СТАРОВ ДЛЯ OMNI ----
-    credits = user_credits.get(uid, 0)
+    credits = await get_user_credits(uid)  # 👈 из БД
     if credits < OMNI_PRICE:
         not_enough_texts = {
             "ua": f"🧠 Режим говорячої голови коштує <b>{OMNI_PRICE} Stars</b>.\n"
@@ -1929,8 +1933,10 @@ async def on_audio_omni(message: Message):
             reply_markup=buy_cta_keyboard(uid),
         )
 
-        # 💰 списываем 400 Stars за Omni
-        user_credits[uid] = max(0, credits - OMNI_PRICE)
+        # 💰 списываем 400 "кредитов" за Omni в БД
+        ok, new_balance = await consume_user_credit(uid, OMNI_PRICE)
+        if not ok:
+            logger.warning("User %s had insufficient credits when charging Omni", uid)
 
     finally:
         try:
