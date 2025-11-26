@@ -406,6 +406,7 @@ payer_users: set[int] = set()           # кто хоть раз платил (�
 MENU_BUTTONS = {
     "ua": {
         "animate": "🪄 Оживити фото",
+        "omni": "🧠 Говоряча голова (Omni)",
         "buy": "💫 Купити генерації",
         "support": "🆘 Підтримка",
         "share": "📤 Розповісти друзям",
@@ -415,6 +416,7 @@ MENU_BUTTONS = {
     },
     "en": {
         "animate": "🪄 Animate photo",
+        "omni": "🧠 Talking head (Omni)",
         "buy": "💫 Buy generations",
         "support": "🆘 Support",
         "share": "📤 Tell friends",
@@ -424,6 +426,7 @@ MENU_BUTTONS = {
     },
     "es": {
         "animate": "🪄 Animar foto",
+        "omni": "🧠 Cabeza parlante (Omni)",
         "buy": "💫 Comprar generaciones",
         "support": "🆘 Soporte",
         "share": "📤 Compartir",
@@ -433,6 +436,7 @@ MENU_BUTTONS = {
     },
     "pt": {
         "animate": "🪄 Animar foto",
+        "omni": "🧠 Cabeça falante (Omni)",
         "buy": "💫 Comprar gerações",
         "support": "🆘 Suporte",
         "share": "📤 Compartilhar",
