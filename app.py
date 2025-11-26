@@ -6,6 +6,9 @@ import random
 import time
 from pathlib import Path
 from typing import Dict, Any
+from db import init_db, close_db
+from db import has_used_free, mark_free_used, consume_credit, ensure_user
+from db import get_credits_balance, add_credits, consume_credit
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -25,7 +28,6 @@ from aiogram.client.default import DefaultBotProperties
 
 from dotenv import load_dotenv
 
-from limiter import FreeUsageLimiter
 from processing import animate_photo_via_replicate, download_file, omni_talking_head
 
 
@@ -65,7 +67,6 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
-limiter = FreeUsageLimiter(max_free=MAX_FREE_ANIMS_PER_USER)
 
 # ---------- i18n через JSON-файлы ----------
 LOCALE_CODES = ("ua", "en", "es", "pt")
@@ -510,8 +511,6 @@ def admin_keyboard() -> InlineKeyboardMarkup:
 def build_admin_summary() -> str:
     paid_users = [uid for uid, c in user_credits.items() if c > 0]
     total_paid_credits = sum(user_credits.values())
-    free_users_count = limiter.users_count()
-    free_used_total = limiter.total_count()
 
     lines = []
     lines.append("🛠 <b>Admin Panel</b>")
@@ -1718,7 +1717,14 @@ async def on_partner_reload(query: CallbackQuery):
 @dp.message(F.photo)
 async def on_photo(message: Message):
     uid = message.from_user.id if message.from_user else 0
+
+    # ✅ Регистрируем пользователя в БД (таблица users по tg_id)
+    await ensure_user(uid)
+
+    # 🔹 Если register_user делает что-то ещё (настройка режима, локали и т.п.) — оставляем
     register_user(uid)
+
+    # как и было
     awaiting_support.pop(uid, None)
     awaiting_video_order.pop(uid, None)
 
@@ -1741,14 +1747,25 @@ async def on_photo(message: Message):
         await message.answer(texts.get(lang, texts["en"]))
         return
 
-    # ------ 2) Обычная анимация фото (как было раньше) ------
+    # ------ 2) Обычная анимация фото (как было раньше), но через Postgres ------
     is_admin = (uid == ADMIN_USER_ID)
 
+    # 🧠 Лимиты: если не тестовый админ, проверяем, можно ли вообще продолжать
     if not (TEST_MODE and is_admin):
-        if user_credits.get(uid, 0) <= 0 and not limiter.can_use(uid):
-            await message.answer(tr(uid, "free_used"))
-            return
+        # использовал ли юзер бесплатное оживление?
+        free_used = await has_used_free(uid)
 
+        if free_used:
+            # бесплатка уже была → смотрим баланс кредитов
+            credits_balance = await get_credits_balance(uid)
+
+            if credits_balance <= 0:
+                # ❌ ни бесплатки, ни кредитов — дальше не пускаем
+                await message.answer(tr(uid, "free_used"))
+                return
+        # если free_used == False → бесплатка ещё не использована, пропускаем дальше без проверок
+
+    # дальше оставляем твою логику без изменений
     photo = message.photo[-1]
 
     width = photo.width
@@ -2008,7 +2025,13 @@ async def on_confirm_back(query: CallbackQuery):
 @dp.callback_query(F.data == "confirm:ok")
 async def on_confirm_ok(query: CallbackQuery):
     uid = query.from_user.id
+
+    # ✅ гарантируем, что юзер есть в таблице users
+    await ensure_user(uid)
+
+    # если register_user делает что-то ещё (локали, режим и т.п.) — оставляем
     register_user(uid)
+
     info = pending_photo.get(uid)
     choice = pending_choice.get(uid)
     if not info or not choice:
@@ -2017,7 +2040,6 @@ async def on_confirm_ok(query: CallbackQuery):
         return
 
     is_admin = (uid == ADMIN_USER_ID)
-    had_paid = user_credits.get(uid, 0) > 0
 
     lang = get_lang(uid)
     if choice["type"] == "caption":
@@ -2071,11 +2093,23 @@ async def on_confirm_ok(query: CallbackQuery):
             text=ref_text
         )
 
+        # 💾 после УСПЕШНОЙ генерации:
+        # либо отмечаем бесплатку, либо списываем кредит из Postgres
         if not (TEST_MODE and is_admin):
-            if had_paid and user_credits.get(uid, 0) > 0:
-                user_credits[uid] -= 1
+            free_used = await has_used_free(uid)
+
+            if not free_used:
+                # это была первая (бесплатная) анимация
+                await mark_free_used(uid)
             else:
-                limiter.mark_used(uid)
+                # бесплатка уже была — списываем 1 кредит
+                ok, new_balance = await consume_credit(uid, amount=1)
+
+                # теоретически сюда не должны попасть без баланса,
+                # потому что на этапе on_photo мы это уже проверяли,
+                # но на всякий случай логируем
+                if not ok:
+                    logger.warning("User %s has no credits at confirm stage", uid)
 
         try:
             os.remove(tmp_path)
