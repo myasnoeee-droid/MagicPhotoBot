@@ -8,8 +8,12 @@ from pathlib import Path
 from typing import Dict, Any
 from db import init_db, close_db
 from db import has_used_free, mark_free_used, consume_credit, ensure_user
-from db import get_credits_balance, add_credits, consume_credit
 
+from helpers_credits import (
+    get_user_credits,
+    add_user_credits,
+    consume_user_credit,
+)
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message,
