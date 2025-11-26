@@ -2076,9 +2076,12 @@ async def on_confirm_ok(query: CallbackQuery):
             prompt=prompt,
         )
         if not result.get("ok"):
-            gen_fail += 1
-            await query.message.edit_text(tr(uid, "done"))
-            return
+    gen_fail += 1
+    err = result.get("error") or "unknown"
+    await query.message.edit_text(
+        "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
+    )
+    return
 
         gen_success += 1
 
