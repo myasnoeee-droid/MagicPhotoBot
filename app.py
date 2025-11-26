@@ -2074,17 +2074,16 @@ async def on_confirm_ok(query: CallbackQuery):
         result = await animate_photo_via_replicate(
             source_image_url=file_url,
             prompt=prompt,
-       )
-
-    if not result.get("ok"):
-        gen_fail += 1
-        err = result.get("error") or "unknown"
-        logger.warning(f"Replicate error for user {uid}: {err}")
-        await query.message.edit_text(
-            "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
         )
-        return
 
+        # ---- Проверка ответа от Replicate ----
+        if not result.get("ok"):
+            gen_fail += 1
+            err = result.get("error") or "unknown"
+            await query.message.edit_text(
+                "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
+            )
+            return
 
         gen_success += 1
 
@@ -2092,54 +2091,56 @@ async def on_confirm_ok(query: CallbackQuery):
         tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
         await download_file(video_url, tmp_path)
 
-        wm_map = {
-            "ua": "\n\n🔖 Зроблено в Magl’sBot",
-            "en": "\n\n🔖 Made with Magl’sBot",
-            "es": "\n\n🔖 Hecho en Magl’sBot",
-            "pt": "\n\n🔖 Feito no Magl’sBot",
-        }
-        watermark_suffix = wm_map.get(lang, "\n\n🔖 Made with Magl’sBot")
-
-        await bot.send_video(
-            chat_id=query.message.chat.id,
-            video=FSInputFile(tmp_path),
-            caption=tr(uid, "done") + watermark_suffix,
-            reply_markup=buy_cta_keyboard(uid),
-        )
-
-        ref_text = referral_info_text(lang)
-        await bot.send_message(
-            chat_id=query.message.chat.id,
-            text=ref_text
-        )
-
-        # 💾 после УСПЕШНОЙ генерации:
-        # либо отмечаем бесплатку, либо списываем кредит из Postgres
-        if not (TEST_MODE and is_admin):
-            free_used = await has_used_free(uid)
-
-            if not free_used:
-                # это была первая (бесплатная) анимация
-                await mark_free_used(uid)
-            else:
-                # бесплатка уже была — списываем 1 кредит через helpers_credits
-                ok, new_balance = await consume_user_credit(uid, 1)
-
-                if not ok:
-                    logger.warning("User %s has no credits at confirm stage", uid)
-
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
-
-        pending_photo.pop(uid, None)
-        pending_choice.pop(uid, None)
-
     except Exception as e:
         gen_fail += 1
         logger.exception("Animation error: %s", e)
         await query.message.edit_text("Error while processing. Try another photo.")
+        return
+
+    # ---- сюда мы попадаем только если всё ОК ----
+
+    wm_map = {
+        "ua": "\n\n🔖 Зроблено в Magl’sBot",
+        "en": "\n\n🔖 Made with Magl’sBot",
+        "es": "\n\n🔖 Hecho en Magl’sBot",
+        "pt": "\n\n🔖 Feito no Magl’sBot",
+    }
+    watermark_suffix = wm_map.get(lang, "\n\n🔖 Made with Magl’sBot")
+
+    await bot.send_video(
+        chat_id=query.message.chat.id,
+        video=FSInputFile(tmp_path),
+        caption=tr(uid, "done") + watermark_suffix,
+        reply_markup=buy_cta_keyboard(uid),
+    )
+
+    ref_text = referral_info_text(lang)
+    await bot.send_message(
+        chat_id=query.message.chat.id,
+        text=ref_text,
+    )
+
+    # 💾 после УСПЕШНОЙ генерации:
+    # либо отмечаем бесплатку, либо списываем кредит
+    if not (TEST_MODE and is_admin):
+        free_used = await has_used_free(uid)
+
+        if not free_used:
+            # это была первая (бесплатная) анимация
+            await mark_free_used(uid)
+        else:
+            # бесплатка уже была — списываем 1 кредит через helpers_credits
+            ok, new_balance = await consume_user_credit(uid, 1)
+            if not ok:
+                logger.warning("User %s has no credits at confirm stage", uid)
+
+    try:
+        os.remove(tmp_path)
+    except Exception:
+        pass
+
+    pending_photo.pop(uid, None)
+    pending_choice.pop(uid, None)
 
 # ---------- MAIN ----------
 
