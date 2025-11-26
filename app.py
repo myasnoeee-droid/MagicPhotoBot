@@ -6,9 +6,14 @@ import random
 import time
 from pathlib import Path
 from typing import Dict, Any
-from db import init_db, close_db
-from db import has_used_free, mark_free_used, consume_credit, ensure_user
-
+from db import (
+    init_db,
+    close_db,
+    ensure_user,
+    has_used_free,
+    mark_free_used,
+    consume_credit,  
+)
 from helpers_credits import (
     get_user_credits,
     add_user_credits,
@@ -1761,7 +1766,7 @@ async def on_photo(message: Message):
 
         if free_used:
             # бесплатка уже была → смотрим баланс кредитов
-            credits_balance = await get_credits_balance(uid)
+            credits_balance = await get_user_credits(uid)
 
             if credits_balance <= 0:
                 # ❌ ни бесплатки, ни кредитов — дальше не пускаем
@@ -2131,8 +2136,18 @@ async def on_confirm_ok(query: CallbackQuery):
 # ---------- MAIN ----------
 
 async def main_async():
+    # 1️⃣ Подключаемся к базе
+    await init_db()
+
+    # 2️⃣ Запускаем фоновый воркер (если используешь)
     asyncio.create_task(referral_reminder_worker())
-    await dp.start_polling(bot)
+
+    # 3️⃣ Запускаем бота
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # 4️⃣ Закрываем соединение с БД
+        await close_db()
 
 
 def main():
