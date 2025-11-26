@@ -450,10 +450,14 @@ def get_menu_labels(lang: str) -> Dict[str, str]:
 def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
+
     kb = ReplyKeyboardMarkup(
         resize_keyboard=True,
         keyboard=[
-            [KeyboardButton(text=labels["animate"])],
+            [
+                KeyboardButton(text=labels["animate"]),
+                KeyboardButton(text=labels["omni"]),   # новая кнопка
+            ],
             [
                 KeyboardButton(text=labels["buy"]),
                 KeyboardButton(text=labels["balance"]),
@@ -1472,44 +1476,34 @@ async def on_text(message: Message):
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
+    # 🪄 Оживить фото — всегда включает режим фото
     if text == labels["animate"]:
         awaiting_support.pop(uid, None)
         awaiting_video_order.pop(uid, None)
+        user_mode[uid] = MODE_PHOTO
 
-        if get_mode(uid) == MODE_DUB:
-            # Подсказка для режима озвучки
-            prompt_texts = {
-                "ua": (
-                    "🎧 Зараз увімкнено режим озвучки відео (lip-sync).\n\n"
-                    "1) Надішли аудіо (голосове або аудіофайл),\n"
-                    "2) Потім — відео, де потрібно синхронізувати губи."
-                ),
-                "en": (
-                    "🎧 You are in video dubbing (lip-sync) mode.\n\n"
-                    "1) Send an audio (voice or audio file),\n"
-                    "2) Then send the video to sync lips with this audio."
-                ),
-                "es": (
-                    "🎧 Estás en modo de doblaje de vídeo (lip-sync).\n\n"
-                    "1) Envía un audio (nota de voz o archivo de audio),\n"
-                    "2) Luego el vídeo para sincronizar los labios."
-                ),
-                "pt": (
-                    "🎧 Você está no modo de dublagem de vídeo (lip-sync).\n\n"
-                    "1) Envie um áudio (mensagem de voz ou arquivo de áudio),\n"
-                    "2) Depois o vídeo para sincronizar os lábios."
-                ),
-            }
-            await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
-        else:
-            # Классическое оживление фото
-            prompt_texts = {
-                "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
-                "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
-                "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
-                "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
-            }
-            await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
+        prompt_texts = {
+            "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
+            "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
+            "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
+            "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
+        }
+        await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
+        return
+
+    # 🧠 Говорящая голова (Omni)
+    if text == labels["omni"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        user_mode[uid] = MODE_DUB
+
+        prompt_texts = {
+            "ua": "🧠 Режим говорячої голови (OmniHuman).\n\n1) Надішли фото з обличчям\n2) Потім — аудіо (voice або аудіофайл).",
+            "en": "🧠 Talking head mode (OmniHuman).\n\n1) Send a photo with a face\n2) Then send an audio (voice message or audio file).",
+            "es": "🧠 Modo cabeza parlante (OmniHuman).\n\n1) Envía una foto con rostro\n2) Luego envía un audio (nota de voz o archivo).",
+            "pt": "🧠 Modo cabeça falante (OmniHuman).\n\n1) Envie uma foto com rosto\n2) Depois envie um áudio (mensagem de voz ou arquivo).",
+        }
+        await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
         return
 
     if text == labels["buy"]:
