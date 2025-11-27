@@ -1901,25 +1901,36 @@ async def on_audio_omni(message: Message):
         return
 
     lang = get_lang(uid)
+    is_admin = (uid == ADMIN_USER_ID)
 
     # ---- ПРОВЕРКА СТАРОВ ДЛЯ OMNI ----
-    credits = await get_user_credits(uid)  # 👈 из БД
-    if credits < OMNI_PRICE:
-        not_enough_texts = {
-            "ua": f"🧠 Режим говорячої голови коштує <b>{OMNI_PRICE} Stars</b>.\n"
-                  f"У тебе зараз {credits} ⭐️.\n\nНатисни кнопку нижче, щоб поповнити баланс.",
-            "en": f"🧠 Talking head mode costs <b>{OMNI_PRICE} Stars</b>.\n"
-                  f"You now have {credits} ⭐️.\n\nTap the button below to top up.",
-            "es": f"🧠 El modo cabeza parlante cuesta <b>{OMNI_PRICE} Stars</b>.\n"
-                  f"Ahora tienes {credits} ⭐️.\n\nPulsa el botón de abajo para recargar.",
-            "pt": f"🧠 O modo cabeça falante custa <b>{OMNI_PRICE} Stars</b>.\n"
-                  f"Você tem {credits} ⭐️.\n\nToque no botão abaixo para recarregar.",
-        }
-        await message.answer(
-            not_enough_texts.get(lang, not_enough_texts["en"]),
-            reply_markup=buy_cta_keyboard(uid),
-        )
-        return
+    # В TEST_MODE для админа — без списаний и без проверок
+    if not (TEST_MODE and is_admin):
+        credits = await get_user_credits(uid)  # 👈 из БД
+        if credits < OMNI_PRICE:
+            not_enough_texts = {
+                "ua": (
+                    f"🧠 Режим говорячої голови коштує <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"У тебе зараз {credits} ⭐️.\n\nНатисни кнопку нижче, щоб поповнити баланс."
+                ),
+                "en": (
+                    f"🧠 Talking head mode costs <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"You now have {credits} ⭐️.\n\nTap the button below to top up."
+                ),
+                "es": (
+                    f"🧠 El modo cabeza parlante cuesta <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"Ahora tienes {credits} ⭐️.\n\nPulsa el botón de abajo para recargar."
+                ),
+                "pt": (
+                    f"🧠 O modo cabeça falante custa <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"Você tem {credits} ⭐️.\n\nToque no botão abaixo para recarregar."
+                ),
+            }
+            await message.answer(
+                not_enough_texts.get(lang, not_enough_texts["en"]),
+                reply_markup=buy_cta_keyboard(uid),
+            )
+            return
 
     # ---- Получаем URL аудио из Telegram ----
     audio_file_id = message.audio.file_id if message.audio else message.voice.file_id
@@ -1977,10 +1988,11 @@ async def on_audio_omni(message: Message):
             reply_markup=buy_cta_keyboard(uid),
         )
 
-        # 💰 списываем 400 "кредитов" за Omni в БД
-        ok, new_balance = await consume_user_credit(uid, OMNI_PRICE)
-        if not ok:
-            logger.warning("User %s had insufficient credits when charging Omni", uid)
+        # 💰 списываем 400 "кредитов" за Omni в БД (кроме админа в TEST_MODE)
+        if not (TEST_MODE and is_admin):
+            ok, new_balance = await consume_user_credit(uid, OMNI_PRICE)
+            if not ok:
+                logger.warning("User %s had insufficient credits when charging Omni", uid)
 
     finally:
         try:
