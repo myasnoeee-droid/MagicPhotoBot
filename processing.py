@@ -1,4 +1,5 @@
 import os
+import aiohttp
 import asyncio
 import logging
 from typing import Optional, Dict, Any
@@ -174,29 +175,48 @@ async def omni_talking_head(
         },
     }
 
-    timeout = aiohttp.ClientTimeout(total=900)  # чуть больше, модель может думать дольше
+   
+OMNI_TIMEOUT = 900  # 15 минут
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        # 1) создаём prediction
-        try:
+async def omni_talking_head(image_url: str, audio_url: str):
+    try:
+        timeout = aiohttp.ClientTimeout(total=OMNI_TIMEOUT)
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
-                REPLICATE_API_URL,
-                headers=headers,
-                json=payload,
+                "https://api.replicate.com/v1/predictions",
+                headers={
+                    "Authorization": f"Token {REPLICATE_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "version": OMNI_MODEL_VERSION,
+                    "input": {
+                        "image": image_url,
+                        "audio": audio_url,
+                    },
+                },
             ) as resp:
-                if resp.status != 201:
+                if resp.status != 200:
                     text = await resp.text()
-                    logger.error("Replicate omni create failed: %s %s", resp.status, text)
-                    return {
-                        "ok": False,
-                        "error": "create_failed",
-                        "status": resp.status,
-                        "body": text,
-                    }
-                pred = await resp.json()
-        except Exception as e:
-            logger.exception("Replicate omni create exception: %s", e)
-            return {"ok": False, "error": "create_exception"}
+                    logging.error(f"Omni API error: {text}")
+                    return {"ok": False, "error": "omni_api_error"}
+
+                data = await resp.json()
+
+        # Ждём завершение предикшена (poll)
+        prediction_id = data["id"]
+
+        # Дальше — ожидание результата с тем же таймаутом
+        return await _wait_for_omni(session, prediction_id)
+
+    except asyncio.TimeoutError:
+        logging.error("Replicate omni timeout")
+        return {"ok": False, "error": "timeout"}
+
+    except Exception as e:
+        logging.exception("Omni exception: %s", e)
+        return {"ok": False, "error": str(e)}
 
         get_url = pred.get("urls", {}).get("get")
         if not get_url:
