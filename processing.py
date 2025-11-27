@@ -134,25 +134,61 @@ async def animate_photo_via_replicate(
 
 # ---------- ГОВОРЯЩАЯ ГОЛОВА ЧЕРЕЗ OMNI-HUMAN (фото + аудио) ----------
 
-async def omni_talking_head(
-    image_url: str,
-    audio_url: str,
-) -> Dict[str, Any]:
-    """
-    Генерация говорящей головы по фото и аудио через bytedance/omni-human-1.5 на Replicate.
+OMNI_TIMEOUT = 900  # 15 минут
 
-    input:
-      image: URL фото с лицом
-      audio: URL аудиофайла (voice/audio/file из Telegram)
+async def _wait_for_omni(session, prediction_url, headers):
     """
+    Ждём завершения модели (polling), максимум 15 минут.
+    """
+    for _ in range(OMNI_TIMEOUT // 3):   # ~300 итераций по 3 секунды = 900 сек
+        await asyncio.sleep(3)
 
+        try:
+            async with session.get(prediction_url, headers=headers) as resp:
+                data = await resp.json()
+        except Exception as e:
+            logger.exception("Replicate omni poll exception: %s", e)
+            continue
+
+        status = data.get("status")
+
+        if status in ("succeeded", "failed", "canceled"):
+            if status == "succeeded":
+                out = data.get("output")
+                url = None
+
+                if isinstance(out, list) and out:
+                    for u in out:
+                        if isinstance(u, str) and "mp4" in u:
+                            url = u
+                            break
+                    if url is None and isinstance(out[0], str):
+                        url = out[0]
+                elif isinstance(out, str):
+                    url = out
+
+                if url:
+                    return {"ok": True, "url": url}
+                else:
+                    return {"ok": False, "error": "no_output_url"}
+
+            else:
+                err_msg = data.get("error") or data.get("logs") or status
+                return {"ok": False, "error": err_msg}
+
+    logger.error("Replicate omni timeout")
+    return {"ok": False, "error": "timeout"}
+
+
+async def omni_talking_head(image_url: str, audio_url: str) -> Dict[str, Any]:
+    """
+    Генерация говорящей головы (omni-human 1.5) на Replicate.
+    Ждёт до 15 минут.
+    """
     if not REPLICATE_API_TOKEN or not REPLICATE_OMNI_MODEL:
         logger.error("Replicate omni-human credentials/model are not set")
         return {"ok": False, "error": "no_omni_model"}
 
-    # REPLICATE_OMNI_MODEL может быть:
-    # - "bytedance/omni-human-1.5:HASH"
-    # - или просто "HASH"
     raw = REPLICATE_OMNI_MODEL.strip()
     if ":" in raw:
         version = raw.split(":")[-1]
@@ -164,10 +200,7 @@ async def omni_talking_head(
         "Content-Type": "application/json",
     }
 
-    # Входы omni-human для talking head:
-    # image — фото
-    # audio — аудио
-    payload: Dict[str, Any] = {
+    payload = {
         "version": version,
         "input": {
             "image": image_url,
@@ -175,94 +208,35 @@ async def omni_talking_head(
         },
     }
 
-   
-OMNI_TIMEOUT = 900  # 15 минут
+    timeout = aiohttp.ClientTimeout(total=OMNI_TIMEOUT)
 
-async def omni_talking_head(image_url: str, audio_url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=OMNI_TIMEOUT)
-
         async with aiohttp.ClientSession(timeout=timeout) as session:
+            # 1) создаём prediction
             async with session.post(
-                "https://api.replicate.com/v1/predictions",
-                headers={
-                    "Authorization": f"Token {REPLICATE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "version": OMNI_MODEL_VERSION,
-                    "input": {
-                        "image": image_url,
-                        "audio": audio_url,
-                    },
-                },
+                REPLICATE_API_URL,
+                headers=headers,
+                json=payload,
             ) as resp:
-                if resp.status != 200:
+                if resp.status != 201:
                     text = await resp.text()
-                    logging.error(f"Omni API error: {text}")
-                    return {"ok": False, "error": "omni_api_error"}
+                    logger.error("Omni create failed: %s", text)
+                    return {"ok": False, "error": "create_failed"}
 
-                data = await resp.json()
+                pred = await resp.json()
 
-        # Ждём завершение предикшена (poll)
-        prediction_id = data["id"]
+            prediction_url = pred["urls"]["get"]
 
-        # Дальше — ожидание результата с тем же таймаутом
-        return await _wait_for_omni(session, prediction_id)
+            # 2) poll до 15 минут
+            return await _wait_for_omni(session, prediction_url, headers)
 
     except asyncio.TimeoutError:
-        logging.error("Replicate omni timeout")
+        logger.error("Replicate omni timeout (aiohttp)")
         return {"ok": False, "error": "timeout"}
 
     except Exception as e:
-        logging.exception("Omni exception: %s", e)
+        logger.exception("Omni exception: %s", e)
         return {"ok": False, "error": str(e)}
-
-        get_url = pred.get("urls", {}).get("get")
-        if not get_url:
-            logger.error("Replicate omni: no get URL in response")
-            return {"ok": False, "error": "no_get_url"}
-
-        # 2) Ожидаем завершения (polling)
-        for _ in range(240):  # до ~4 минут
-            await asyncio.sleep(1)
-            try:
-                async with session.get(get_url, headers=headers) as resp2:
-                    data = await resp2.json()
-            except Exception as e:
-                logger.exception("Replicate omni poll exception: %s", e)
-                continue
-
-            status = data.get("status")
-            if status in ("succeeded", "failed", "canceled"):
-                if status == "succeeded":
-                    out = data.get("output")
-                    url = None
-
-                    if isinstance(out, list) and out:
-                        # omni обычно возвращает список URL'ов
-                        for u in out:
-                            if isinstance(u, str) and ("mp4" in u or u.endswith(".mp4")):
-                                url = u
-                                break
-                        if url is None and isinstance(out[0], str):
-                            url = out[0]
-                    elif isinstance(out, str):
-                        url = out
-
-                    if url:
-                        return {"ok": True, "url": url}
-                    else:
-                        logger.error("Replicate omni succeeded but no output URL")
-                        return {"ok": False, "error": "no_output_url"}
-
-                else:
-                    err_msg = data.get("error") or data.get("logs") or status
-                    logger.error("Replicate omni status=%s, error=%s", status, err_msg)
-                    return {"ok": False, "error": err_msg}
-
-        logger.error("Replicate omni timeout")
-        return {"ok": False, "error": "timeout"}
 
 
 # ---------- СКАЧИВАНИЕ ФАЙЛОВ ----------
