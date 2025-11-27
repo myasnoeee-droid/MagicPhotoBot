@@ -1422,6 +1422,33 @@ async def on_buy_click(query: CallbackQuery):
     uid = query.from_user.id
     register_user(uid)
     code = query.data.split(":", 1)[1]
+
+    # 🔹 Отдельный кейс для Omni-видео
+    if code == "omni":
+        lang = get_lang(uid)
+        title_map = {
+            "ua": "1 відео Omni",
+            "en": "1 Omni video",
+            "es": "1 vídeo Omni",
+            "pt": "1 vídeo Omni",
+        }
+        title = title_map.get(lang, "1 Omni video")
+
+        prices = [LabeledPrice(label=title, amount=OMNI_PRICE)]
+
+        await bot.send_invoice(
+            chat_id=query.message.chat.id,
+            title=title,
+            description=f"{title} for Magl’sBot",
+            payload="omni",  # 👈 важный payload
+            provider_token="",  # Stars
+            currency="XTR",
+            prices=prices,
+        )
+        await query.answer()
+        return
+
+    # 🔹 Остальные (старые) пакеты
     pack = PACKS.get(code)
     if not pack:
         await query.answer("Unknown pack")
@@ -1455,6 +1482,24 @@ async def on_payment(message: Message):
 
     sp = message.successful_payment
     payload = sp.invoice_payload
+
+    # 🔹 Оплата за Omni-видео
+    if payload == "omni":
+        # Пока делаем максимально просто: за покупку Omni добавляем OMNI_PRICE
+        # в общий баланс (чтобы его хватило на 1 видео Omni).
+        new_balance = await add_user_credits(uid, OMNI_PRICE, "purchase_omni")
+
+        lang = get_lang(uid)
+        texts = {
+            "ua": f"✅ Оплачено 1 відео Omni (400 ⭐).\nЗараз на балансі: <b>{new_balance}</b>",
+            "en": f"✅ Paid for 1 Omni video (400 ⭐).\nCurrent balance: <b>{new_balance}</b>",
+            "es": f"✅ Pagado 1 vídeo Omni (400 ⭐).\nSaldo actual: <b>{new_balance}</b>",
+            "pt": f"✅ Pago 1 vídeo Omni (400 ⭐).\nSaldo atual: <b>{new_balance}</b>",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
+
+    # 🔹 Обычные пакеты
     pack = PACKS.get(payload)
     if not pack:
         await message.answer("Payment received, but pack not recognized. Contact admin.")
