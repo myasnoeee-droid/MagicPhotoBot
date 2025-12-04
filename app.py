@@ -1,31 +1,17 @@
 import os
-import json
-import time
 import asyncio
 import logging
+import json
 import random
+import time
 from pathlib import Path
 from typing import Dict, Any
-
-from aiogram import Bot, Dispatcher, F
-from aiogram.enums.parse_mode import ParseMode
-from aiogram.client.default import DefaultBotProperties
-from aiogram.filters import CommandStart, Command
-from aiogram.types import (
-    Message, CallbackQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton,
-    ReplyKeyboardMarkup, KeyboardButton,
-    FSInputFile,
-    LabeledPrice, PreCheckoutQuery
-)
-
-from dotenv import load_dotenv
-
-# --- наши модули ---
 from db import (
-    init_db, close_db,
+    init_db,
+    close_db,
     ensure_user,
-    has_used_free, mark_free_used,
+    has_used_free,
+    mark_free_used,
     register_referral as db_register_referral,
 )
 from helpers_credits import (
@@ -33,28 +19,54 @@ from helpers_credits import (
     add_user_credits,
     consume_user_credit,
 )
-from processing import (
-    animate_photo_via_replicate,
-    omni_talking_head,
-    download_file
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message,
+    FSInputFile,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
+    LabeledPrice,
+    PreCheckoutQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
+from aiogram.filters import CommandStart, Command
+from aiogram.enums.parse_mode import ParseMode
+from aiogram.client.default import DefaultBotProperties
 
-# ================================
-#     ИНИЦИАЛИЗАЦИЯ
-# ================================
+from dotenv import load_dotenv
+
+from processing import animate_photo_via_replicate, download_file, omni_talking_head
+
+
 load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s:%(name)s:%(message)s'
 )
-logger = logging.getLogger("maglsbot")
+logger = logging.getLogger("magicphotobot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", 0))
-SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", 0))
-ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", 0))
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
+SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # чат/канал для поддержки (опц.)
+ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
+MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
+OMNI_PRICE = 400
+
+# Заставка — оживлённое видео Гарри Поттера
+INTRO_VIDEO_FILE_ID = os.getenv(
+    "INTRO_VIDEO_FILE_ID",
+    "BAACAgIAAxkBAAICuWkgf1x1yIEgxE8FQoImZ5vuoxbOAALGiwACIA4JSfhC7_NPZQrDNgQ"
+)
+
+# Чат для заявок на видео "под ключ"
+ORDER_CHAT_ID = int(os.getenv("ORDER_CHAT_ID", "-5085880330"))
+
+# Интервал пушей рефералок (по умолчанию 24 часа)
+PUSH_INTERVAL_SECONDS = int(os.getenv("REF_PUSH_INTERVAL", "86400"))
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -65,68 +77,121 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-# ================================
-#     РЕЖИМЫ БОТА
-# ================================
-MODE_PHOTO = "photo"     # обычная анимация фото
-MODE_OMNI = "omni"       # говорящая голова (фото + аудио)
-
-user_mode: Dict[int, str] = {}          # uid → "photo"/"omni"
-omni_pending_photo: Dict[int, str] = {} # uid → фото URL для Omni
-
-def get_mode(uid: int) -> str:
-    return user_mode.get(uid, MODE_PHOTO)
-
-# ================================
-#     ЛОКАЛИЗАЦИИ
-# ================================
+# ---------- i18n через JSON-файлы ----------
 LOCALE_CODES = ("ua", "en", "es", "pt")
 DEFAULT_LANG = "en"
 LOCALES: Dict[str, Dict[str, Any]] = {}
-user_lang: Dict[int, str] = {}   # uid → "ua"/"en"/"es"/"pt"
+user_lang: Dict[int, str] = {}  # user_id -> "ua"/"en"/"es"/"pt"
+
+# ---------- Режимы работы бота ----------
+
+MODE_PHOTO = "photo"   # обычное оживление фото
+MODE_DUB = "dub"       # говорящая голова (OmniHuman: фото + аудио)
+
+# режим пользователя: uid -> "photo" / "dub"
+user_mode: Dict[int, str] = {}
+
+# для OmniHuman: сюда кладём URL фото, по которому потом будем делать говорящую голову
+omni_pending_photo: Dict[int, str] = {}  # uid -> image_url
+
+
+def get_mode(uid: int) -> str:
+    """
+    Текущий режим пользователя. По умолчанию — MODE_PHOTO.
+    """
+    return user_mode.get(uid, MODE_PHOTO)
+
+
+def mode_choice_keyboard(lang: str) -> InlineKeyboardMarkup:
+    # Локализация кнопок выбора режима
+    labels = {
+        "ua": {
+            "photo": "✨ Оживлення фото",
+            "dub":   "🧠 Говоряча голова (OmniHuman)",
+        },
+        "en": {
+            "photo": "✨ Photo animation",
+            "dub":   "🧠 Talking head (OmniHuman)",
+        },
+        "es": {
+            "photo": "✨ Animar foto",
+            "dub":   "🧠 Cabeza parlante (OmniHuman)",
+        },
+        "pt": {
+            "photo": "✨ Animação de foto",
+            "dub":   "🧠 Cabeça falante (OmniHuman)",
+        },
+    }
+    l = labels.get(lang, labels["en"])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=l["photo"], callback_data="mode:photo")],
+            [InlineKeyboardButton(text=l["dub"],   callback_data="mode:dub")],
+        ]
+    )
+
+
+def mode_choice_text(lang: str) -> str:
+    if lang == "ua":
+        return (
+            "Обери режим магії 🪄\n\n"
+            "1️⃣ <b>Оживлення фото</b> — анімація портретів, як у магічних фільмах.\n"
+            "2️⃣ <b>Говоряча голова (OmniHuman)</b> — надішли фото, потім аудіо, і фото заговорить твоїм голосом."
+        )
+    if lang == "es":
+        return (
+            "Elige el modo de magia 🪄\n\n"
+            "1️⃣ <b>Animar foto</b> — retratos animados como en películas mágicas.\n"
+            "2️⃣ <b>Cabeza parlante (OmniHuman)</b> — envía una foto y luego un audio, y la foto hablará con tu voz."
+        )
+    if lang == "pt":
+        return (
+            "Escolha o modo de magia 🪄\n\n"
+            "1️⃣ <b>Animação de foto</b> — retratos animados como em filmes mágicos.\n"
+            "2️⃣ <b>Cabeça falante (OmniHuman)</b> — envie uma foto e depois um áudio, e a foto falará com a sua voz."
+        )
+    # en по умолчанию
+    return (
+        "Choose your magic mode 🪄\n\n"
+        "1️⃣ <b>Photo animation</b> — animate portraits like in magic movies.\n"
+        "2️⃣ <b>Talking head (OmniHuman)</b> — send a photo, then an audio, and the photo will speak with your voice."
+    )
+
 
 def load_locales():
     base = Path(__file__).parent / "locales"
     for code in LOCALE_CODES:
         path = base / f"{code}.json"
         if not path.exists():
-            logger.warning(f"Locale missing: {path}")
+            logger.warning("Locale file not found: %s", path)
             continue
         try:
             with path.open("r", encoding="utf-8") as f:
                 LOCALES[code] = json.load(f)
-            logger.info(f"Locale {code} loaded")
+            logger.info("Loaded locale %s from %s", code, path)
         except Exception as e:
-            logger.exception(f"Locale {code} load error: {e}")
+            logger.exception("Failed to load locale %s: %s", code, e)
+
 
 load_locales()
-
 if DEFAULT_LANG not in LOCALES:
-    raise RuntimeError("Default locale not loaded")
+    raise RuntimeError("Default locale not loaded (check locales/en.json).")
+
 
 def get_lang(uid: int) -> str:
     return user_lang.get(uid, DEFAULT_LANG)
 
+
 def tr(uid: int, key: str) -> str:
     lang = get_lang(uid)
-    loc = LOCALES.get(lang, LOCALES[DEFAULT_LANG])
+    loc = LOCALES.get(lang) or LOCALES[DEFAULT_LANG]
     return loc.get(key, LOCALES[DEFAULT_LANG].get(key, ""))
+
 
 def tr_lang(lang: str, key: str) -> str:
-    loc = LOCALES.get(lang, LOCALES[DEFAULT_LANG])
+    loc = LOCALES.get(lang) or LOCALES[DEFAULT_LANG]
     return loc.get(key, LOCALES[DEFAULT_LANG].get(key, ""))
 
-
-# ================================
-#     ВСТУПИТЕЛЬНОЕ ВИДЕО
-# ================================
-INTRO_VIDEO_FILE_ID = os.getenv(
-    "INTRO_VIDEO_FILE_ID",
-    "BAACAgIAAxkBAAICuWkgf1x1yIEgxE8FQoImZ5vuoxbOAALGiwACIA4JSfhC7_NPZQrDNgQ"
-)
-# ================================================================
-#                      ЯЗЫК — ВЫБОР ПОЛЬЗОВАТЕЛЕМ
-# ================================================================
 
 def lang_choice_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -143,18 +208,219 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-# ================================================================
-#                   КНОПКИ МЕНЮ (ReplyKeyboard)
-# ================================================================
+
+
+# ---------- Пресеты (региональные) ----------
+
+PRESET_PROMPTS_BASE = [
+    "natural smile, slight head turn right, photorealistic",                     # 0 Natural smile
+    "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 1 Cinematic look
+    "gentle movement, hair flutter, soft focus, ethereal glow",                 # 2 Dreamy motion
+    "smile softly, natural head tilt, expressive eyes, warm tone lighting",     # 3 Expressive vibe
+    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow
+    "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 5 Wink
+    "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 6 Vintage film
+    "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 7 Dramatic lighting
+    "editorial portrait, soft bounce light, slight head movement, elegant expression"  # 8 Editorial portrait
+]
+
+PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
+    "ua": PRESET_PROMPTS_BASE,
+    "en": PRESET_PROMPTS_BASE,
+    "es": [
+        "warm natural smile, slight head turn right, photorealistic skin texture",
+        "cinematic close-up portrait, subtle breathing, soft studio light, 24fps",
+        "gentle flowing movement, light hair flutter, dreamy soft focus, ethereal glow",
+        "soft smile, relaxed head tilt, very expressive eyes, warm golden lighting",
+        "slow gentle eye blink, slow smile, cinematic contrast, photorealistic detail",
+        "playful subtle wink, small smile, natural head motion, beauty lighting",
+        "nostalgic vintage 35mm film look, film grain, warm tones, subtle motion",
+        "strong dramatic lighting, deep shadows, intense cinematic mood, expressive face",
+        "fashion editorial portrait, soft bounce light, elegant slow head movement"
+    ],
+    "pt": [
+        "soft natural smile, slight head turn, realistic skin and eyes",
+        "cinematic portrait shot, calm breathing, soft studio light, 24fps look",
+        "smooth gentle movement, light hair motion, dreamy soft focus, glow",
+        "soft sweet smile, natural head tilt, warm expressive eyes, cozy lighting",
+        "gentle eye blink, slow friendly smile, cinematic lighting, realistic details",
+        "cute subtle wink, light smile, natural head motion, flattering light",
+        "retro 35mm film style, film grain, warm nostalgic tones, subtle motion",
+        "cinematic dramatic lighting, strong contrast, emotional portrait, deep shadows",
+        "elegant editorial portrait, soft studio bounce light, slow refined movement"
+    ],
+}
+
+
+def get_preset_prompt(lang: str, idx: int) -> str:
+    arr = PRESET_PROMPTS_BY_LANG.get(lang) or PRESET_PROMPTS_BASE
+    if 0 <= idx < len(arr):
+        return arr[idx]
+    return PRESET_PROMPTS_BASE[0]
+
+
+PRESET_TITLES: Dict[str, list[str]] = {
+    "en": [
+        "😊 Natural smile",
+        "🎬 Cinematic look",
+        "🕊️ Dreamy motion",
+        "🔥 Expressive vibe",
+        "💡 Blink & Glow ⭐ recommended for old photos",
+        "😉 Wink",
+        "🎞 Vintage film",
+        "💥 Dramatic lighting",
+        "🖼 Editorial portrait",
+    ],
+    "ua": [
+        "😊 Natural smile",
+        "🎬 Cinematic look",
+        "🕊️ Dreamy motion",
+        "🔥 Expressive vibe",
+        "💡 Blink & Glow ⭐ рекомендовано для старих фото",
+        "😉 Wink",
+        "🎞 Vintage film",
+        "💥 Dramatic lighting",
+        "🖼 Editorial portrait",
+    ],
+    "es": [
+        "😊 Sonrisa natural",
+        "🎬 Look cinematográfico",
+        "🕊️ Movimiento suave",
+        "🔥 Vibras expresivas",
+        "💡 Parpadeo suave & brillo ⭐ ideal para fotos antiguas",
+        "😉 Guiño sutil",
+        "🎞 Estilo película vintage",
+        "💥 Iluminación dramática",
+        "🖼 Retrato editorial",
+    ],
+    "pt": [
+        "😊 Sorriso natural",
+        "🎬 Visual cinematográfico",
+        "🕊️ Movimento suave",
+        "🔥 Vibração expressiva",
+        "💡 Piscar suave & brilho ⭐ ideal para fotos antigas",
+        "😉 Piscadinha sutil",
+        "🎞 Filme vintage 35mm",
+        "💥 Iluminação dramática",
+        "🖼 Retrato editorial",
+    ],
+}
+
+pending_photo: Dict[int, Dict[str, Any]] = {}
+pending_choice: Dict[int, Dict[str, Any]] = {}
+omni_pending_photo: Dict[int, str] = {}  # uid -> file_id фото для говорящей головы
+user_mode: Dict[int, str] = {}  # "animate" (по умолчанию) или "omni"
+
+# ---------- Пользователи и пуши ----------
+
+known_users: set[int] = set()
+last_ref_push: Dict[int, float] = {}  # user_id -> last push ts
+
+
+def register_user(uid: int):
+    if uid and uid > 0:
+        known_users.add(uid)
+
+
+def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
+
+    random_labels = {
+        "ua": "✨ Random magic",
+        "en": "✨ Random magic",
+        "es": "✨ Magia aleatoria",
+        "pt": "✨ Magia aleatória",
+    }
+    random_text = random_labels.get(lang, "✨ Random magic")
+
+    rows: list[list[InlineKeyboardButton]] = []
+    rows.append(
+        [InlineKeyboardButton(text=random_text, callback_data="preset:random")]
+    )
+
+    for i in range(len(titles)):
+        rows.append(
+            [InlineKeyboardButton(text=titles[i], callback_data=f"preset:{i+1}")]
+        )
+
+    row_last: list[InlineKeyboardButton] = []
+    if has_caption:
+        row_last.append(
+            InlineKeyboardButton(
+                text=tr(uid, "btn_use_caption"),
+                callback_data="preset:usecap",
+            )
+        )
+    row_last.append(
+        InlineKeyboardButton(
+            text=tr(uid, "btn_cancel"),
+            callback_data="preset:cancel",
+        )
+    )
+    rows.append(row_last)
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    confirm_labels = {
+        "ua": "✅ Запустити",
+        "en": "✅ Start",
+        "es": "✅ Iniciar",
+        "pt": "✅ Iniciar",
+    }
+    back_labels = {
+        "ua": "🔙 Назад",
+        "en": "🔙 Back",
+        "es": "🔙 Volver",
+        "pt": "🔙 Voltar",
+    }
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=confirm_labels.get(lang, "✅ Start"),
+                    callback_data="confirm:ok"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=back_labels.get(lang, "🔙 Back"),
+                    callback_data="confirm:back"
+                )
+            ],
+        ]
+    )
+
+# ---------- Stars (XTR) тарифы и кредиты ----------
+
+PACKS = {
+    "pack_1": ("1 animation", 1, 60),
+    "pack_3": ("3 animations", 3, 150),
+    "pack_5": ("5 animations", 5, 300),
+    "pack_10": ("10 animations", 10, 500),
+    "pack_25": ("25 animations", 25, 1000),
+}
+
+# ----- Рефералка -----
+ref_inviter: Dict[int, int] = {}        # invited_id -> inviter_id
+ref_count: Dict[int, int] = {}          # inviter_id -> count
+ref_stars_balance: Dict[int, int] = {}  # остаток Stars, не конвертированных
+ref_stars_total: Dict[int, int] = {}    # суммарно начисленных Stars за всё время (5%)
+payer_users: set[int] = set()           # кто хоть раз платил (покупал Stars)
+
+# ---------- Главное меню (ReplyKeyboard) ----------
 
 MENU_BUTTONS = {
     "ua": {
         "animate": "🪄 Оживити фото",
         "omni": "🧠 Говоряча голова (Omni)",
         "buy": "💫 Купити генерації",
-        "balance": "💰 Баланс",
         "support": "🆘 Підтримка",
         "share": "📤 Розповісти друзям",
+        "balance": "💰 Баланс",
         "order_video": "🎬 Замовити відео під ключ",
         "partner": "🤝 Партнерський кабінет",
     },
@@ -162,9 +428,9 @@ MENU_BUTTONS = {
         "animate": "🪄 Animate photo",
         "omni": "🧠 Talking head (Omni)",
         "buy": "💫 Buy generations",
-        "balance": "💰 Balance",
         "support": "🆘 Support",
         "share": "📤 Tell friends",
+        "balance": "💰 Balance",
         "order_video": "🎬 Order custom video",
         "partner": "🤝 Partner dashboard",
     },
@@ -172,9 +438,9 @@ MENU_BUTTONS = {
         "animate": "🪄 Animar foto",
         "omni": "🧠 Cabeza parlante (Omni)",
         "buy": "💫 Comprar generaciones",
-        "balance": "💰 Balance",
         "support": "🆘 Soporte",
         "share": "📤 Compartir",
+        "balance": "💰 Balance",
         "order_video": "🎬 Encargar video a medida",
         "partner": "🤝 Panel de socio",
     },
@@ -182,13 +448,14 @@ MENU_BUTTONS = {
         "animate": "🪄 Animar foto",
         "omni": "🧠 Cabeça falante (Omni)",
         "buy": "💫 Comprar gerações",
-        "balance": "💰 Saldo",
         "support": "🆘 Suporte",
         "share": "📤 Compartilhar",
+        "balance": "💰 Saldo",
         "order_video": "🎬 Encomendar vídeo sob medida",
         "partner": "🤝 Painel de parceiro",
     },
 }
+
 
 def get_menu_labels(lang: str) -> Dict[str, str]:
     return MENU_BUTTONS.get(lang, MENU_BUTTONS["en"])
@@ -197,12 +464,13 @@ def get_menu_labels(lang: str) -> Dict[str, str]:
 def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
-    return ReplyKeyboardMarkup(
+
+    kb = ReplyKeyboardMarkup(
         resize_keyboard=True,
         keyboard=[
             [
                 KeyboardButton(text=labels["animate"]),
-                KeyboardButton(text=labels["omni"]),
+                KeyboardButton(text=labels["omni"]),   # новая кнопка
             ],
             [
                 KeyboardButton(text=labels["buy"]),
@@ -212,226 +480,881 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
                 KeyboardButton(text=labels["support"]),
                 KeyboardButton(text=labels["share"]),
             ],
-            [KeyboardButton(text=labels["order_video"])],
-            [KeyboardButton(text=labels["partner"])],
-        ]
+            [
+                KeyboardButton(text=labels["order_video"]),
+            ],
+            [
+                KeyboardButton(text=labels["partner"]),
+            ],
+        ],
     )
+    return kb
+
+# ---------- Поддержка и заявки на видео ----------
+
+awaiting_support: Dict[int, bool] = {}
+awaiting_video_order: Dict[int, bool] = {}
+
+# ---------- АДМИНСКИЕ СЧЁТЧИКИ И TEST MODE ----------
+
+TEST_MODE = False
+pack_stats: Dict[str, int] = {key: 0 for key in PACKS.keys()}
+gen_success: int = 0
+gen_fail: int = 0
 
 
-# ================================================================
-#                        РЕЖИМЫ БОТА (UI)
-# ================================================================
-
-def mode_choice_keyboard(lang: str) -> InlineKeyboardMarkup:
-    labels = {
-        "ua": {"photo": "✨ Оживлення фото", "omni": "🧠 Говоряча голова (Omni)"},
-        "en": {"photo": "✨ Photo animation", "omni": "🧠 Talking head (Omni)"},
-        "es": {"photo": "✨ Animar foto", "omni": "🧠 Cabeza parlante (Omni)"},
-        "pt": {"photo": "✨ Animação de foto", "omni": "🧠 Cabeça falante (Omni)"},
-    }
-    l = labels.get(lang, labels["en"])
+def admin_keyboard() -> InlineKeyboardMarkup:
+    mode = "🧪 Test mode: ON" if TEST_MODE else "🧪 Test mode: OFF"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=l["photo"], callback_data="mode:photo")],
-            [InlineKeyboardButton(text=l["omni"],  callback_data="mode:omni")],
+            [
+                InlineKeyboardButton(text="📊 Stats", callback_data="admin:stats"),
+                InlineKeyboardButton(text="👥 Users", callback_data="admin:users"),
+            ],
+            [InlineKeyboardButton(text=mode, callback_data="admin:test_toggle")],
         ]
     )
 
 
-def mode_choice_text(lang: str) -> str:
+def build_admin_summary() -> str:
+    lines = []
+    lines.append("🛠 <b>Admin Panel</b>")
+    lines.append("")
+    lines.append(f"🧪 Test mode: <b>{'ON' if TEST_MODE else 'OFF'}</b>")
+    lines.append("")
+    lines.append(f"👥 Known users (session): <b>{len(known_users)}</b>")
+    lines.append("")
+    lines.append(f"🎞 Generations: success=<b>{gen_success}</b>, fail=<b>{gen_fail}</b>")
+    lines.append("")
+    lines.append("📦 Packs purchased:")
+    for code, cnt in pack_stats.items():
+        title = PACKS.get(code, ("?", 0, 0))[0]
+        lines.append(f"• {code} ({title}) — <b>{cnt}</b> times")
+    return "\n".join(lines)
+
+# ---------- РЕФЕРАЛЬНАЯ МАГИЯ ----------
+
+def referral_info_text(lang: str) -> str:
+    ua = (
+        "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
+        "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
+        "Отримуй 5% Stars від усіх поповнень друзів.\n\n"
+        "Поділись ботом через кнопку «Розповісти друзям» в меню — і нехай магія розлітається світом 🪄"
+    )
+    en = (
+        "✨ <b>Magl’sBot referral magic</b>\n\n"
+        "Invite 3 friends — get 1 free animation.\n"
+        "Earn 5% Stars from all your friends’ top-ups.\n\n"
+        "Share the bot via the “Tell friends” button and let the magic spread 🪄"
+    )
+    es = (
+        "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
+        "Invita a 3 amigos — recibe 1 animación gratis.\n"
+        "Gana 5% en Stars de todas las recargas de tus amigos.\n\n"
+        "Comparte el bot con el botón “Compartir” y deja que la magia se expanda 🪄"
+    )
+    pt = (
+        "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
+        "Convide 3 amigos — ganhe 1 animação grátis.\n"
+        "Ganhe 5% em Stars de todas as recargas dos seus amigos.\n\n"
+        "Compartilhe o bot pelo botão “Compartilhar” e deixe a magia se espalhar 🪄"
+    )
     mapping = {
+        "ua": ua,
+        "en": en,
+        "es": es,
+        "pt": pt,
+    }
+    return mapping.get(lang, en)
+
+
+def get_ref_main_text(lang: str) -> str:
+    """
+    Экран при входе в реферальный раздел (/ref)
+    """
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    if lang == "ua":
+        return (
+            "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
+            "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
+            "Отримуй 5% Stars від усіх поповнень друзів.\n\n"
+            "Поділись ботом через кнопку нижче — і нехай магія розлітається світом 🪄"
+        )
+    if lang == "en":
+        return (
+            "✨ <b>Magl’sBot referral magic</b>\n\n"
+            "Invite 3 friends — get 1 free animation.\n"
+            "Earn 5% Stars from all your friends’ top-ups.\n\n"
+            "Use the buttons below to share your link and track your stats 🪄"
+        )
+    if lang == "es":
+        return (
+            "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
+            "Invita a 3 amigos — recibe 1 animación gratis.\n"
+            "Gana 5% en Stars de todas las recargas de tus amigos.\n\n"
+            "Usa los botones de abajo para compartir tu enlace y ver tus estadísticas 🪄"
+        )
+    if lang == "pt":
+        return (
+            "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
+            "Convide 3 amigos — ganhe 1 animação grátis.\n"
+            "Ganhe 5% em Stars de todas as recargas dos seus amigos.\n\n"
+            "Use os botões abaixo para compartilhar seu link e ver suas estatísticas 🪄"
+        )
+    return ""
+
+
+async def build_referral_stats_text(uid: int) -> str:
+    lang = get_lang(uid)
+    invited = ref_count.get(uid, 0)
+    free_from_invites = invited // 3
+    pending_stars = ref_stars_balance.get(uid, 0)
+
+    credits = await get_user_credits(uid)  # 👈 из Postgres
+
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    if lang == "ua":
+        lines = [
+            "📊 <b>Твоя реферальна статистика</b>",
+            "",
+            f"👥 Запрошено друзів: <b>{invited}</b>",
+            f"🎁 Безкоштовних оживлень за друзів (накопичено всього): <b>{free_from_invites}</b>",
+            f"⭐ Накопичено реферальних Stars (ще не конвертовано): <b>{pending_stars}</b>",
+            f"💰 Поточний баланс оживлень: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    if lang == "en":
+        lines = [
+            "📊 <b>Your referral stats</b>",
+            "",
+            f"👥 Friends invited: <b>{invited}</b>",
+            f"🎁 Free animations from invites (total accrued): <b>{free_from_invites}</b>",
+            f"⭐ Referral Stars accumulated (not yet converted): <b>{pending_stars}</b>",
+            f"💰 Current animation balance: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    if lang == "es":
+        lines = [
+            "📊 <b>Tus estadísticas de referidos</b>",
+            "",
+            f"👥 Amigos invitados: <b>{invited}</b>",
+            f"🎁 Animaciones gratis por referidos (acumuladas): <b>{free_from_invites}</b>",
+            f"⭐ Stars de referidos acumuladas (sin convertir): <b>{pending_stars}</b>",
+            f"💰 Balance actual de animaciones: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    if lang == "pt":
+        lines = [
+            "📊 <b>Suas estatísticas de indicação</b>",
+            "",
+            f"👥 Amigos indicados: <b>{invited}</b>",
+            f"🎁 Animações grátis por indicações (acumuladas): <b>{free_from_invites}</b>",
+            f"⭐ Stars de indicação acumuladas (ainda não convertidas): <b>{pending_stars}</b>",
+            f"💰 Saldo atual de animações: <b>{credits}</b>",
+        ]
+        return "\n".join(lines)
+
+    return ""
+
+
+def referral_main_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    share_labels = {
+        "ua": "📤 Розповісти друзям",
+        "en": "📤 Tell friends",
+        "es": "📤 Compartir con amigos",
+        "pt": "📤 Compartilhar com amigos",
+    }
+    stats_labels = {
+        "ua": "📊 Моя статистика",
+        "en": "📊 My stats",
+        "es": "📊 Mis estadísticas",
+        "pt": "📊 Minhas estatísticas",
+    }
+    share_text = share_labels.get(lang, share_labels["en"])
+    stats_text = stats_labels.get(lang, stats_labels["en"])
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=share_text, callback_data="ref:share")],
+            [InlineKeyboardButton(text=stats_text, callback_data="ref:stats")],
+        ]
+    )
+
+# ---------- ПАРТНЁРСКИЙ КАБИНЕТ ----------
+
+def get_partner_level(total_invited: int, lang: str) -> str:
+    if total_invited >= 100:
+        ua = "🏆 <b>Archmage Partner</b>"
+        en = "🏆 <b>Archmage Partner</b>"
+        es = "🏆 <b>Socio Archimago</b>"
+        pt = "🏆 <b>Parceiro Arquimago</b>"
+    elif total_invited >= 30:
+        ua = "💎 <b>Master Mage Partner</b>"
+        en = "💎 <b>Master Mage Partner</b>"
+        es = "💎 <b>Socio Mago Maestro</b>"
+        pt = "💎 <b>Parceiro Mago Mestre</b>"
+    elif total_invited >= 10:
+        ua = "✨ <b>Apprentice Mage Partner</b>"
+        en = "✨ <b>Apprentice Mage Partner</b>"
+        es = "✨ <b>Socio Mago Aprendiz</b>"
+        pt = "✨ <b>Parceiro Mago Aprendiz</b>"
+    elif total_invited >= 1:
+        ua = "🔮 <b>New Mage Partner</b>"
+        en = "🔮 <b>New Mage Partner</b>"
+        es = "🔮 <b>Nuevo socio mago</b>"
+        pt = "🔮 <b>Novo parceiro mago</b>"
+    else:
+        ua = "🌱 <b>Почни свою магічну подорож</b>"
+        en = "🌱 <b>Start your magic journey</b>"
+        es = "🌱 <b>Comienza tu viaje mágico</b>"
+        pt = "🌱 <b>Comece sua jornada mágica</b>"
+
+    if lang == "ua":
+        return ua
+    if lang == "es":
+        return es
+    if lang == "pt":
+        return pt
+    return en
+
+
+def build_partner_dashboard_text(uid: int) -> str:
+    lang = get_lang(uid)
+
+    invited_users = [u for u, inv in ref_inviter.items() if inv == uid]
+    total = len(invited_users)
+
+    active = len(invited_users)
+    payers = sum(1 for u in invited_users if u in payer_users)
+
+    bonus = ref_stars_total.get(uid, 0)
+    total_users = len(known_users)
+
+    cr_active = (active / total * 100) if total else 0.0
+    cr_payers = (payers / total * 100) if total else 0.0
+
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    level_text = get_partner_level(total, lang)
+
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    if lang == "ua":
+        text = (
+            "🤝 <b>Партнерський кабінет Magl’sBot</b>\n\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Твоя магічна реферальна лінка:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "📊 <b>Статистика:</b>\n"
+            f"👥 Запрошено користувачів: <b>{total}</b>\n"
+            f"✨ Оживили фото: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Купили Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Отримано бонусних Stars: <b>{bonus}</b>\n\n"
+            f"🌍 Учасників бота всього: <b>{total_users}</b>\n\n"
+            "📌 Поширюй цю лінку в сторіс, постах та чатах — "
+            "і отримуй магічні винагороди за кожного активного мага 🪄"
+        )
+        return text
+
+    if lang == "en":
+        text = (
+            "🤝 <b>Magl’sBot Partner Dashboard</b>\n\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Your magic referral link:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "<b>📊 Stats:</b>\n"
+            f"👥 Users invited: <b>{total}</b>\n"
+            f"✨ Did at least one animation: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Bought Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Bonus Stars earned: <b>{bonus}</b>\n\n"
+            f"🌍 Total bot users: <b>{total_users}</b>\n\n"
+            "📌 Share this link in your stories, posts and chats — "
+            "and earn magic rewards for each active mage 🪄"
+        )
+        return text
+
+    if lang == "es":
+        text = (
+            "🤝 <b>Panel de socio Magl’sBot</b>\n\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Tu enlace mágico de referido:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "📊 <b>Estadísticas:</b>\n"
+            f"👥 Usuarios invitados: <b>{total}</b>\n"
+            f"✨ Animaron al menos una foto: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Compraron Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Stars de bono recibidas: <b>{bonus}</b>\n\n"
+            f"🌍 Usuarios totales del bot: <b>{total_users}</b>\n\n"
+            "📌 Comparte este enlace en stories, posts y chats — "
+            "y gana recompensas mágicas por cada mago activo 🪄"
+        )
+        return text
+
+    if lang == "pt":
+        text = (
+            "🤝 <b>Painel de parceiro Magl’sBot</b>\n\n"
+            f"{level_text}\n\n"
+            "🔗 <b>Seu link mágico de indicação:</b>\n"
+            f"<code>{ref_link}</code>\n\n"
+            "📊 <b>Estatísticas:</b>\n"
+            f"👥 Usuários indicados: <b>{total}</b>\n"
+            f"✨ Fizeram ao menos uma animação: <b>{active}</b> (<i>{cr_active:.1f}%</i>)\n"
+            f"⭐ Compraram Stars: <b>{payers}</b> (<i>{cr_payers:.1f}%</i>)\n"
+            f"💰 Stars de bônus recebidas: <b>{bonus}</b>\n\n"
+            f"🌍 Usuários totais do bot: <b>{total_users}</b>\n\n"
+            "📌 Compartilhe este link em stories, posts e chats — "
+            "e ganhe recompensas mágicas por cada mago ativo 🪄"
+        )
+        return text
+
+    return ""
+
+
+def partner_keyboard(uid: int) -> InlineKeyboardMarkup:
+    lang = get_lang(uid)
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+
+    share_texts = {
         "ua": (
-            "Обери режим магії 🪄\n\n"
-            "1️⃣ <b>Оживлення фото</b>\n"
-            "2️⃣ <b>Говоряча голова (OmniHuman)</b> — фото + аудіо → відео"
+            f"🪄 Спробуй Magl’sBot — бот, який оживляє фото, як у магічних фільмах:\n"
+            f"{ref_link}"
         ),
         "en": (
-            "Choose your magic mode 🪄\n\n"
-            "1️⃣ <b>Photo animation</b>\n"
-            "2️⃣ <b>Talking head (OmniHuman)</b> — photo + audio → video"
+            f"🪄 Try Magl’sBot — a bot that animates your photos like in magic movies:\n"
+            f"{ref_link}"
         ),
         "es": (
-            "Elige el modo de magia 🪄\n\n"
-            "1️⃣ <b>Animación de foto</b>\n"
-            "2️⃣ <b>Cabeza parlante (OmniHuman)</b> — foto + audio → video"
+            f"🪄 Prueba Magl’sBot — un bot que anima tus fotos como en películas mágicas:\n"
+            f"{ref_link}"
         ),
         "pt": (
-            "Escolha o modo mágico 🪄\n\n"
-            "1️⃣ <b>Animação de foto</b>\n"
-            "2️⃣ <b>Cabeça falante (OmniHuman)</b> — foto + áudio → vídeo"
+            f"🪄 Experimente o Magl’sBot — um bot que anima suas fotos como em filmes mágicos:\n"
+            f"{ref_link}"
         ),
     }
-    return mapping.get(lang, mapping["en"])
+    share_text = share_texts.get(lang, share_texts["en"])
+
+    share_labels = {
+        "ua": "📤 Поділитися посиланням",
+        "en": "📤 Share link",
+        "es": "📤 Compartir enlace",
+        "pt": "📤 Compartilhar link",
+    }
+    reload_labels = {
+        "ua": "🔄 Оновити статистику",
+        "en": "🔄 Refresh stats",
+        "es": "🔄 Actualizar estadísticas",
+        "pt": "🔄 Atualizar estatísticas",
+    }
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=share_labels.get(lang, share_labels["en"]),
+                    switch_inline_query=share_text,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=reload_labels.get(lang, reload_labels["en"]),
+                    callback_data="partner:reload",
+                )
+            ],
+        ]
+    )
+
+# ---------- Пуши рефералок ----------
+
+def get_ref_push_text(lang: str, variant: int) -> str:
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
+
+    texts = {
+        "ua": {
+            1: "✨ У тебе ще є шанс отримати безкоштовне оживлення.\nЗапроси 3 друзів — і магія зробить це за тебе 🪄",
+            2: "🔥 Магічний бонус чекає!\nЗапроси ще 1 друга — і відкриється нове безкоштовне оживлення.",
+        },
+        "en": {
+            1: "✨ You still have a chance to get a free animation.\nInvite 3 friends and let the magic do the rest 🪄",
+            2: "🔥 A magic bonus is waiting!\nInvite 1 more friend to unlock a new free animation.",
+        },
+        "es": {
+            1: "✨ Aún tienes la oportunidad de conseguir una animación gratis.\nInvita a 3 amigos y deja que la magia haga el resto 🪄",
+            2: "🔥 ¡Un bono mágico te espera!\nInvita a 1 amigo más y se activará una nueva animación gratis.",
+        },
+        "pt": {
+            1: "✨ Você ainda tem a chance de ganhar uma animação grátis.\nConvide 3 amigos e deixe a magia fazer o resto 🪄",
+            2: "🔥 Um bônus mágico está esperando!\nConvide mais 1 amigo para liberar uma nova animação grátis.",
+        },
+    }
+    return texts.get(lang, {}).get(variant, "")
 
 
-# ================================================================
-#                           /start
-# ================================================================
+def get_ref_bonus_text(lang: str, bonus_stars: int, gained_credits: int, credits_balance: int) -> str:
+    if lang not in ("ua", "en", "es", "pt"):
+        lang = "en"
 
-known_users: set[int] = set()
+    if lang == "ua":
+        lines = [
+            "🎉 Один із твоїх друзів поповнив Stars!",
+            "Ти отримав свій магічний бонус — +5% ✨",
+            f"Це <b>{bonus_stars}</b> Stars на твоєму реферальному балансі.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Частину вже конвертовано у додаткові оживлення.\n"
+                f"Зараз у тебе: <b>{credits_balance}</b> кредитів."
+            )
+        lines.append("\nЗапроси ще, щоб отримати більше подарунків 🪄")
+        return "\n".join(lines)
 
-def register_user(uid: int):
-    if uid > 0:
-        known_users.add(uid)
+    if lang == "en":
+        lines = [
+            "🎉 One of your friends just topped up Stars!",
+            "You received your magic bonus — +5% ✨",
+            f"That’s <b>{bonus_stars}</b> Stars on your referral balance.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Part of it has already been converted into extra animations.\n"
+                f"Your current balance: <b>{credits_balance}</b> credits."
+            )
+        lines.append("\nInvite more friends to get even more rewards 🪄")
+        return "\n".join(lines)
 
+    if lang == "es":
+        lines = [
+            "🎉 ¡Uno de tus amigos recargó Stars!",
+            "Has recibido tu bono mágico — +5% ✨",
+            f"Son <b>{bonus_stars}</b> Stars en tu saldo de referidos.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Parte ya se convirtió en animaciones extra.\n"
+                f"Tu saldo actual: <b>{credits_balance}</b> animaciones."
+            )
+        lines.append("\nInvita a más amigos para recibir más regalos 🪄")
+        return "\n".join(lines)
+
+    if lang == "pt":
+        lines = [
+            "🎉 Um dos seus amigos acabou de recarregar Stars!",
+            "Você recebeu seu bônus mágico — +5% ✨",
+            f"Isto é <b>{bonus_stars}</b> Stars no seu saldo de indicação.",
+        ]
+        if gained_credits > 0:
+            lines.append(
+                f"Uma parte já foi convertida em animações extras.\n"
+                f"Seu saldo atual: <b>{credits_balance}</b> créditos."
+            )
+        lines.append("\nConvide mais amigos para ganhar ainda mais recompensas 🪄")
+        return "\n".join(lines)
+
+    return ""
+
+
+async def register_referral(new_user_id: int, inviter_id: int):
+    if new_user_id == inviter_id:
+        return
+
+    # сначала пишем в Postgres, чтобы не было дублей
+    created = await db_register_referral(inviter_id=inviter_id, invited_id=new_user_id)
+    if not created:
+        # уже был такой реферал
+        return
+
+    # дальше поддерживаем in-memory статистику
+    ref_inviter[new_user_id] = inviter_id
+    ref_count[inviter_id] = ref_count.get(inviter_id, 0) + 1
+    count = ref_count[inviter_id]
+
+    earned_free = 1 if (count % 3 == 0) else 0
+    if earned_free:
+        # начисляем 1 бесплатную анимацию через БД
+        new_balance = await add_user_credits(inviter_id, earned_free, "referral_3_friends")
+    else:
+        new_balance = await get_user_credits(inviter_id)
+
+    try:
+        lang = get_lang(inviter_id)
+        msg_lines = [
+            "🧙‍♂️ Новий маг приєднався за твоїм посиланням!",
+            f"Ти вже запросив: <b>{count}</b> друзів.",
+        ]
+        if earned_free:
+            msg_lines.append(
+                f"За кожні 3 запрошених — +1 безкоштовне оживлення.\n"
+                f"🎁 Ти щойно отримав +1! Зараз у тебе {new_balance} кредитів."
+            )
+        else:
+            left = 3 - (count % 3)
+            msg_lines.append(
+                f"Ще <b>{left}</b> друзів — і ти отримаєш +1 безкоштовне оживлення ✨"
+            )
+        await bot.send_message(inviter_id, "\n".join(msg_lines))
+    except Exception as e:
+        logger.warning("Failed to notify inviter: %s", e)
+
+
+async def referral_reminder_worker():
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await asyncio.sleep(PUSH_INTERVAL_SECONDS)
+            now = time.time()
+
+            for uid in list(known_users):
+                if uid <= 0:
+                    continue
+
+                last = last_ref_push.get(uid, 0)
+                if now - last < PUSH_INTERVAL_SECONDS * 0.9:
+                    continue
+
+                count = ref_count.get(uid, 0)
+                if count <= 0:
+                    friends_to_next = 3
+                else:
+                    mod = count % 3
+                    friends_to_next = 3 if mod == 0 else (3 - mod)
+
+                if friends_to_next == 1:
+                    variant = 2
+                else:
+                    variant = 1
+
+                lang = get_lang(uid)
+                text = get_ref_push_text(lang, variant)
+                if not text:
+                    continue
+
+                try:
+                    await bot.send_message(uid, text)
+                    last_ref_push[uid] = now
+                    logger.info(f"Sent referral push (variant={variant}) to {uid}")
+                except Exception as e:
+                    logger.warning(f"Failed to send referral push to {uid}: {e}")
+        except Exception as e:
+            logger.exception(f"Error in referral_reminder_worker: {e}")
+            await asyncio.sleep(60)
+
+# ---------- Handlers ----------
 
 @dp.message(CommandStart())
 async def on_start(message: Message):
-    uid = message.from_user.id
+    if ALLOWED_CHAT_IDS and message.chat.id not in ALLOWED_CHAT_IDS:
+        await message.answer(
+            LOCALES[DEFAULT_LANG].get("invite_only", "Invite only. Contact admin.")
+        )
+        return
+
+    uid = message.from_user.id if message.from_user else 0
     register_user(uid)
 
-    # рефералка
-    payload = (message.text or "").split(maxsplit=1)
-    payload = payload[1] if len(payload) > 1 else ""
+    parts = (message.text or "").split(maxsplit=1)
+    payload = parts[1] if len(parts) > 1 else ""
     if payload.startswith("ref_"):
         try:
-            inviter = int(payload[4:])
-            await register_referral(uid, inviter)
-            register_user(inviter)
-        except:
+            inviter_id = int(payload[4:])
+            await register_referral(uid, inviter_id)
+            register_user(inviter_id)
+        except ValueError:
             pass
 
-    # выбор языка
     if uid not in user_lang:
-        caption = "Magl’sBot вітає тебе!\n✨ Обери мову:"
+        caption = (
+            "Magl’sBot вітає тебе, мандрівнику-магу!\n\n"
+            "✨ Обери мову чарівної книги:"
+        )
+
+        if INTRO_VIDEO_FILE_ID:
+            try:
+                await message.answer_video(
+                    video=INTRO_VIDEO_FILE_ID,
+                    caption=caption,
+                    supports_streaming=True,
+                    reply_markup=lang_choice_keyboard(),
+                )
+                return
+            except Exception as e:
+                logger.warning("Failed to send intro video with caption: %s", e)
+
+        await message.answer(caption, reply_markup=lang_choice_keyboard())
+        return
+
+    if INTRO_VIDEO_FILE_ID:
         try:
             await message.answer_video(
                 video=INTRO_VIDEO_FILE_ID,
-                caption=caption,
-                supports_streaming=True,
-                reply_markup=lang_choice_keyboard()
+                supports_streaming=True
             )
-        except:
-            await message.answer(caption, reply_markup=lang_choice_keyboard())
-        return
+        except Exception as e:
+            logger.warning("Failed to send intro video (known lang): %s", e)
 
-    # если язык выбран — отправляем интро + меню
-    try:
-        await message.answer_video(
-            video=INTRO_VIDEO_FILE_ID,
-            supports_streaming=True
-        )
-    except:
-        pass
-
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
     await message.answer(tr(uid, "welcome"), reply_markup=main_menu_keyboard(uid))
 
-
-# ================================================================
-#                      УСТАНОВКА ЯЗЫКА
-# ================================================================
 
 @dp.callback_query(F.data.startswith("lang:"))
 async def on_lang_set(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     _, code = query.data.split(":", 1)
-
     if code not in LOCALES:
-        await query.answer("Unavailable", show_alert=True)
+        await query.answer("Language not available", show_alert=True)
         return
 
     user_lang[uid] = code
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
 
+    # по умолчанию режим фото
+    user_mode[uid] = MODE_PHOTO
+
+    # пытаемся обновить подпись/текст
     try:
         await query.message.edit_caption(tr(uid, "lang_set"))
-    except:
+    except Exception:
         try:
             await query.message.edit_text(tr(uid, "lang_set"))
-        except:
+        except Exception:
             await query.message.answer(tr(uid, "lang_set"))
 
-    # предлагаем выбрать режим
+    lang = get_lang(uid)
+
+    # теперь предлагаем выбрать режим
     await query.message.answer(
-        mode_choice_text(code),
-        reply_markup=mode_choice_keyboard(code)
+        mode_choice_text(lang),
+        reply_markup=mode_choice_keyboard(lang),
     )
 
     await query.answer()
 
-
-# ================================================================
-#                   ВЫБОР РЕЖИМА (photo / omni)
-# ================================================================
-
 @dp.callback_query(F.data == "mode:photo")
-async def mode_photo(query: CallbackQuery):
+async def on_mode_photo(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     user_mode[uid] = MODE_PHOTO
     lang = get_lang(uid)
 
     texts = {
-        "ua": "Режим: ✨ Оживлення фото.\nНадішли фото 🪄",
-        "en": "Mode: ✨ Photo animation.\nSend a photo 🪄",
-        "es": "Modo: ✨ Animar foto.\nEnvía una foto 🪄",
-        "pt": "Modo: ✨ Animação de foto.\nEnvie uma foto 🪄",
+        "ua": "Режим: ✨ Оживлення фото.\n\nНадішли мені фото — я оживлю його 🪄",
+        "en": "Mode: ✨ Photo animation.\n\nSend me a photo and I’ll animate it 🪄",
+        "es": "Modo: ✨ Animar foto.\n\nEnvíame una foto y la animaré 🪄",
+        "pt": "Modo: ✨ Animação de foto.\n\nEnvie uma foto e eu vou animá-la 🪄",
     }
-
-    await query.message.answer(texts.get(lang, texts["en"]), reply_markup=main_menu_keyboard(uid))
+    await query.message.answer(
+        texts.get(lang, texts["en"]),
+        reply_markup=main_menu_keyboard(uid),
+    )
     await query.answer()
 
 
-@dp.callback_query(F.data == "mode:omni")
-async def mode_omni(query: CallbackQuery):
+@dp.callback_query(F.data == "mode:dub")
+async def on_mode_dub(query: CallbackQuery):
     uid = query.from_user.id
-    user_mode[uid] = MODE_OMNI
+    register_user(uid)
+    user_mode[uid] = MODE_DUB
     lang = get_lang(uid)
 
     texts = {
-        "ua": "Режим: 🧠 Говоряча голова.\n1) Надішли фото\n2) Потім аудіо",
-        "en": "Mode: 🧠 Talking head.\n1) Send a photo\n2) Then audio",
-        "es": "Modo: 🧠 Cabeza parlante.\n1) Envía una foto\n2) Luego audio",
-        "pt": "Modo: 🧠 Cabeça falante.\n1) Envie uma foto\n2) Depois um áudio",
+        "ua": (
+            "Режим: 🎧 Говоряча голова (Omni).\n\n"
+            "1) Спочатку надішли фото з обличчям,\n"
+            "2) Потім — аудіо (voice або аудіофайл), і я зроблю відео, де це фото говорить твоїм голосом."
+        ),
+        "en": (
+            "Mode: 🎧 Talking head (Omni).\n\n"
+            "1) First send a photo with a face,\n"
+            "2) Then send an audio (voice message or audio file), and I’ll make a video of this photo speaking with your voice."
+        ),
+        "es": (
+            "Modo: 🎧 Cabeza parlante (Omni).\n\n"
+            "1) Primero envía una foto con un rostro,\n"
+            "2) Luego un audio (nota de voz o archivo), y haré un vídeo donde esta foto habla con tu voz."
+        ),
+        "pt": (
+            "Modo: 🎧 Cabeça falante (Omni).\n\n"
+            "1) Primeiro envie uma foto com um rosto,\n"
+            "2) Depois um áudio (mensagem de voz ou arquivo), e farei um vídeo em que essa foto fala com a sua voz."
+        ),
     }
-
-    await query.message.answer(texts.get(lang, texts["en"]), reply_markup=main_menu_keyboard(uid))
+    await query.message.answer(
+        texts.get(lang, texts["en"]),
+        reply_markup=main_menu_keyboard(uid),
+    )
     await query.answer()
-# ================================================================
-#                PACKS — ЦЕНЫ, КОЛИЧЕСТВА, ОМНИ
-# ================================================================
+    
 
-OMNI_PRICE = 400  # сколько Stars стоит одно Omni-видео
-
-PACKS = {
-    "pack_1":  ("1 animation", 1, 60),
-    "pack_3":  ("3 animations", 3, 150),
-    "pack_5":  ("5 animations", 5, 300),
-    "pack_10": ("10 animations", 10, 500),
-    "pack_25": ("25 animations", 25, 1000),
-}
-
-payer_users: set[int] = set()            # пользователи, которые хоть раз платили
-ref_inviter: dict[int, int] = {}         # кто кого пригласил
-ref_stars_total: dict[int, int] = {}     # всего начислено Stars
-ref_stars_balance: dict[int, int] = {}   # остаток Stars до конвертации
+@dp.message(Command("pricing"))
+async def on_pricing(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    await message.answer(tr(uid, "pricing"))
 
 
-# ================================================================
-#                      BUY MENU / CTA KEYBOARD
-# ================================================================
+@dp.message(Command("buy"))
+async def on_buy(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
+
+
+@dp.message(Command("balance"))
+async def on_balance(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+
+    credits = await get_user_credits(uid)  # 👈 из Postgres
+
+    await message.answer(
+        tr(uid, "balance_title").format(credits=credits)
+    )
+
+
+@dp.message(Command("menu"))
+async def on_menu(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
+    await message.answer("Меню оновлено ⬇️", reply_markup=main_menu_keyboard(uid))
+
+
+@dp.message(Command("ref"))
+async def on_ref_command(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    lang = get_lang(uid)
+    await message.answer(
+        get_ref_main_text(lang),
+        reply_markup=referral_main_keyboard(uid)
+    )
+
+
+@dp.message(Command("partner"))
+async def on_partner_command(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    text = build_partner_dashboard_text(uid)
+    await message.answer(text, reply_markup=partner_keyboard(uid))
+
+# ---------- /admin и admin callbacks ----------
+
+@dp.message(Command("admin"))
+async def on_admin(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    if uid != ADMIN_USER_ID:
+        await message.answer("⛔️ You are not an admin.")
+        return
+    text = build_admin_summary()
+    await message.answer(text, reply_markup=admin_keyboard())
+
+
+@dp.callback_query(F.data.startswith("admin:"))
+async def on_admin_action(query: CallbackQuery):
+    uid = query.from_user.id
+    if uid != ADMIN_USER_ID:
+        await query.answer("Not admin", show_alert=True)
+        return
+
+    action = query.data.split(":", 1)[1]
+    global TEST_MODE
+
+    if action == "stats":
+        text = build_admin_summary()
+        await query.message.edit_text(text, reply_markup=admin_keyboard())
+        await query.answer("Stats updated")
+        return
+
+    if action == "users":
+        all_ids = sorted(u for u in known_users if u > 0)
+
+        if not all_ids:
+            await query.message.edit_text("👥 No users yet.", reply_markup=admin_keyboard())
+            await query.answer()
+            return
+
+        lines = ["👥 <b>Users snapshot</b> (top 50):"]
+        for i, u in enumerate(all_ids):
+            if i >= 50:
+                lines.append("… (truncated)")
+                break
+            lang_u = get_lang(u)
+            lines.append(f"• id={u}, lang={lang_u}")
+
+        text = "\n".join(lines)
+        await query.message.edit_text(text, reply_markup=admin_keyboard())
+        await query.answer("Users list")
+        return
+
+    if action == "test_toggle":
+        TEST_MODE = not TEST_MODE
+        status = "ON" if TEST_MODE else "OFF"
+        text = build_admin_summary()
+        await query.message.edit_text(text, reply_markup=admin_keyboard())
+        await query.answer(f"Test mode {status}", show_alert=True)
+        return
+
+# ---------- Покупка пакетов ----------
 
 def buy_menu_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
 
+    # Лейбл для Omni (1 відео = 400 Stars)
     omni_labels = {
         "ua": "🧠 1 відео Omni — 400 ⭐",
         "en": "🧠 1 Omni video — 400 ⭐",
         "es": "🧠 1 vídeo Omni — 400 ⭐",
         "pt": "🧠 1 vídeo Omni — 400 ⭐",
     }
-    omni_text = omni_labels.get(lang, "🧠 1 Omni video — 400 ⭐")
+    omni_text = omni_labels.get(lang, omni_labels["en"])
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
     buttons = [
-        InlineKeyboardButton(text=omni_text, callback_data="buy:omni"),
-        InlineKeyboardButton(text=popular_text, callback_data="buy:pack_3"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_5"), callback_data="buy:pack_5"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_10"), callback_data="buy:pack_10"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_25"), callback_data="buy:pack_25"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_1"), callback_data="buy:pack_1"),
+        # OmniHuman покупка
+        InlineKeyboardButton(
+            text=omni_text,
+            callback_data="buy:omni",
+        ),
+        # Пакеты оживлений фото
+        InlineKeyboardButton(
+            text=popular_text,
+            callback_data="buy:pack_3",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_5"),
+            callback_data="buy:pack_5",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_10"),
+            callback_data="buy:pack_10",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐",
+            callback_data="buy:pack_25",
+        ),
+        InlineKeyboardButton(
+            text=tr_lang(lang, "buy_btn_1"),
+            callback_data="buy:pack_1",
+        ),
     ]
 
-    return InlineKeyboardMarkup(inline_keyboard=[[b] for b in buttons])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[b] for b in buttons]
+    )
 
 
 def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
@@ -443,20 +1366,39 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
         "es": "🧠 1 vídeo Omni — 400 ⭐",
         "pt": "🧠 1 vídeo Omni — 400 ⭐",
     }
-    omni_text = omni_labels.get(lang, "🧠 1 Omni video — 400 ⭐")
+    omni_text = omni_labels.get(lang, omni_labels["en"])
 
     popular_text = "🔥 " + tr_lang(lang, "buy_btn_3")
 
     buy_buttons = [
-        InlineKeyboardButton(text=omni_text, callback_data="buy:omni"),
-        InlineKeyboardButton(text=popular_text, callback_data="buy:pack_3"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_5"), callback_data="buy:pack_5"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_10"), callback_data="buy:pack_10"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_25"), callback_data="buy:pack_25"),
-        InlineKeyboardButton(text=tr_lang(lang, "buy_btn_1"), callback_data="buy:pack_1"),
+        # OmniHuman сверху
+        InlineKeyboardButton(
+            text=omni_text,
+            callback_data="buy:omni",
+        ),
+        # Пакеты оживлений
+        InlineKeyboardButton(
+            text=popular_text,
+            callback_data="buy:pack_3",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_5"),
+            callback_data="buy:pack_5",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_10"),
+            callback_data="buy:pack_10",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + (tr_lang(lang, "buy_btn_25") or "25 animations — 1000 ⭐"),
+            callback_data="buy:pack_25",
+        ),
+        InlineKeyboardButton(
+            text="💫 " + tr_lang(lang, "buy_btn_1"),
+            callback_data="buy:pack_1",
+        ),
     ]
 
-    # кнопка "Поделиться"
     share_labels = {
         "ua": "📤 Поділитися",
         "en": "📤 Share",
@@ -464,27 +1406,24 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
         "pt": "📤 Compartilhar",
     }
     ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
-
-    share_btn = InlineKeyboardButton(
-        text=share_labels.get(lang, "📤 Share"),
-        url=ref_link
+    share_button = InlineKeyboardButton(
+        text=share_labels.get(lang, share_labels["en"]),
+        url=ref_link,
     )
 
     rows = [[b] for b in buy_buttons]
-    rows.append([share_btn])
+    rows.append([share_button])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-
-# ================================================================
-#                     CALLBACK “buy:*”
-# ================================================================
 
 @dp.callback_query(F.data.startswith("buy:"))
 async def on_buy_click(query: CallbackQuery):
     uid = query.from_user.id
+    register_user(uid)
     code = query.data.split(":", 1)[1]
 
-    # 🧠 Покупка Omni
+    # 🔹 Отдельный кейс для Omni-видео
     if code == "omni":
         lang = get_lang(uid)
         title_map = {
@@ -501,7 +1440,7 @@ async def on_buy_click(query: CallbackQuery):
             chat_id=query.message.chat.id,
             title=title,
             description=f"{title} for Magl’sBot",
-            payload="omni",
+            payload="omni",  # 👈 важный payload
             provider_token="",  # Stars
             currency="XTR",
             prices=prices,
@@ -509,7 +1448,7 @@ async def on_buy_click(query: CallbackQuery):
         await query.answer()
         return
 
-    # 🪄 Покупка стандартных пакетов
+    # 🔹 Остальные (старые) пакеты
     pack = PACKS.get(code)
     if not pack:
         await query.answer("Unknown pack")
@@ -523,377 +1462,376 @@ async def on_buy_click(query: CallbackQuery):
         title=title,
         description=f"{title} for Magl’sBot",
         payload=code,
-        provider_token="",
+        provider_token="",  # Stars
         currency="XTR",
         prices=prices,
     )
     await query.answer()
 
 
-# ================================================================
-#               Stars: подтверждение платежа
-# ================================================================
-
 @dp.pre_checkout_query()
 async def on_checkout(pre: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre.id, ok=True)
 
 
-# ================================================================
-#                 Stars успешный платёж
-# ================================================================
-
 @dp.message(F.successful_payment)
 async def on_payment(message: Message):
-    uid = message.from_user.id
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    payer_users.add(uid)
+
     sp = message.successful_payment
     payload = sp.invoice_payload
 
-    payer_users.add(uid)
-
-    # ============================================================
-    #               Покупка Omni 400 ⭐
-    # ============================================================
+    # 🔹 Оплата за Omni-видео
     if payload == "omni":
+        # Пока делаем максимально просто: за покупку Omni добавляем OMNI_PRICE
+        # в общий баланс (чтобы его хватило на 1 видео Omni).
         new_balance = await add_user_credits(uid, OMNI_PRICE, "purchase_omni")
+
         lang = get_lang(uid)
-
         texts = {
-            "ua": f"✅ Оплачено 1 відео Omni (400 ⭐).\nБаланс: <b>{new_balance}</b>",
-            "en": f"✅ Paid for 1 Omni video (400 ⭐).\nBalance: <b>{new_balance}</b>",
-            "es": f"✅ Pagado 1 vídeo Omni (400 ⭐).\nSaldo: <b>{new_balance}</b>",
-            "pt": f"✅ Pago 1 vídeo Omni (400 ⭐).\nSaldo: <b>{new_balance}</b>",
+            "ua": f"✅ Оплачено 1 відео Omni (400 ⭐).\nЗараз на балансі: <b>{new_balance}</b>",
+            "en": f"✅ Paid for 1 Omni video (400 ⭐).\nCurrent balance: <b>{new_balance}</b>",
+            "es": f"✅ Pagado 1 vídeo Omni (400 ⭐).\nSaldo actual: <b>{new_balance}</b>",
+            "pt": f"✅ Pago 1 vídeo Omni (400 ⭐).\nSaldo atual: <b>{new_balance}</b>",
         }
-
         await message.answer(texts.get(lang, texts["en"]))
         return
 
-    # ============================================================
-    #               Покупка стандартных пакетов
-    # ============================================================
+    # 🔹 Обычные пакеты
     pack = PACKS.get(payload)
     if not pack:
-        await message.answer("Payment received but pack not recognized.")
+        await message.answer("Payment received, but pack not recognized. Contact admin.")
         return
 
     title, credits, amount = pack
 
+    # 👇 начисляем кредиты в Postgres
     new_balance = await add_user_credits(uid, credits, f"purchase_{payload}")
 
-    # Увеличение статистики
     global pack_stats
-    pack_stats[payload] += 1
+    if payload in pack_stats:
+        pack_stats[payload] += 1
 
-    # ============================================================
-    #                  Рефералка — 5% Stars
-    # ============================================================
     inviter_id = ref_inviter.get(uid)
     if inviter_id:
+        register_user(inviter_id)
         total_stars = sp.total_amount
-        bonus_stars = total_stars * 5 // 100
+        bonus_stars = int(total_stars * 0.05)
+        if bonus_stars > 0:
+            # реферальные Stars по-прежнему считаем в памяти
+            ref_stars_total[inviter_id] = ref_stars_total.get(inviter_id, 0) + bonus_stars
+            ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
 
-        ref_stars_total[inviter_id] = ref_stars_total.get(inviter_id, 0) + bonus_stars
-        ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
+            gained_credits = 0
+            while ref_stars_balance[inviter_id] >= 60:
+                ref_stars_balance[inviter_id] -= 60
+                # 👇 за каждые 60 реф. Stars даём 1 анимацию в БД
+                await add_user_credits(inviter_id, 1, "referral_stars_convert")
+                gained_credits += 1
 
-        # 🔄 Конвертация каждых 60 ⭐ → 1 анимация
-        gained = 0
-        while ref_stars_balance[inviter_id] >= 60:
-            ref_stars_balance[inviter_id] -= 60
-            await add_user_credits(inviter_id, 1, "referral_stars_convert")
-            gained += 1
+            try:
+                lang_inv = get_lang(inviter_id)
+                inviter_balance = await get_user_credits(inviter_id)  # 👈 из БД
 
-        try:
-            lang_i = get_lang(inviter_id)
-            inviter_balance = await get_user_credits(inviter_id)
-
-            msg = get_ref_bonus_text(
-                lang_i,
-                bonus_stars=bonus_stars,
-                gained_credits=gained,
-                credits_balance=inviter_balance,
-            )
-            await bot.send_message(inviter_id, msg)
-
-        except Exception as e:
-            logger.warning("Failed to notify inviter: %s", e)
-
-    # ============================================================
-    #               Сообщение клиенту после покупки
-    # ============================================================
+                text = get_ref_bonus_text(
+                    lang_inv,
+                    bonus_stars=bonus_stars,
+                    gained_credits=gained_credits,
+                    credits_balance=inviter_balance,
+                )
+                await bot.send_message(inviter_id, text)
+            except Exception as e:
+                logger.warning("Failed to notify inviter about stars bonus: %s", e)
 
     await message.answer(
         tr(uid, "paid_ok").format(
             credits=credits,
-            balance=new_balance
+            balance=new_balance,  # 👈 баланс из БД
         )
     )
-# ================================================================
-#                         OMNI HUMAN (DUB)
-# ================================================================
 
-OMNI_TIMEOUT = 900  # 15 минут
+# ---------- Главное меню: текстовые кнопки ----------
 
-omni_pending_photo: dict[int, str] = {}   # uid → image_url
-omni_pending_audio: dict[int, str] = {}   # uid → audio_url
-
-
-# ---------- Функция ожидания результата Replicate ----------
-
-async def _poll_replicate_prediction(session, get_url: str, timeout_sec=OMNI_TIMEOUT):
-    for _ in range(timeout_sec):
-        await asyncio.sleep(1)
-        try:
-            async with session.get(get_url, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"}) as r:
-                data = await r.json()
-        except Exception as e:
-            logger.error("Omni poll error: %s", e)
-            continue
-
-        status = data.get("status")
-
-        if status == "succeeded":
-            output = data.get("output")
-            if isinstance(output, list) and output:
-                for u in output:
-                    if isinstance(u, str) and ("mp4" in u or u.endswith(".mp4")):
-                        return {"ok": True, "url": u}
-                return {"ok": True, "url": output[0]}
-            elif isinstance(output, str):
-                return {"ok": True, "url": output}
-            else:
-                return {"ok": False, "error": "no_output"}
-
-        if status in ("failed", "canceled"):
-            return {"ok": False, "error": data.get("error") or status}
-
-    return {"ok": False, "error": "timeout"}
-
-
-# ---------- Основная функция OmniHuman ----------
-
-async def omni_talking_head(image_url: str, audio_url: str) -> dict:
-    if not REPLICATE_OMNI_MODEL or not REPLICATE_API_TOKEN:
-        return {"ok": False, "error": "no_omni_model"}
-
-    raw = REPLICATE_OMNI_MODEL.strip()
-    version = raw.split(":")[-1] if ":" in raw else raw
-
-    payload = {
-        "version": version,
-        "input": {
-            "image": image_url,
-            "audio": audio_url,
-        },
-    }
-
-    timeout = aiohttp.ClientTimeout(total=OMNI_TIMEOUT)
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        # create prediction
-        try:
-            async with session.post(
-                "https://api.replicate.com/v1/predictions",
-                headers={
-                    "Authorization": f"Token {REPLICATE_API_TOKEN}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            ) as resp:
-                if resp.status not in (200, 201):
-                    txt = await resp.text()
-                    logger.error("Omni create error: %s %s", resp.status, txt)
-                    return {"ok": False, "error": "create_failed"}
-                pred = await resp.json()
-        except Exception as e:
-            logger.exception("Omni create exception: %s", e)
-            return {"ok": False, "error": "create_exception"}
-
-        get_url = pred.get("urls", {}).get("get")
-        if not get_url:
-            return {"ok": False, "error": "no_get_url"}
-
-        # polling
-        return await _poll_replicate_prediction(session, get_url, OMNI_TIMEOUT)
-
-
-# ================================================================
-#               ВЫБОР РЕЖИМА — DUB (говорящая голова)
-# ================================================================
-
-@dp.callback_query(F.data == "mode:dub")
-async def switch_to_dub(query: CallbackQuery):
-    uid = query.from_user.id
-    set_mode(uid, MODE_DUB)
-
+@dp.message(F.text)
+async def on_text(message: Message):
+    text = message.text or ""
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
     lang = get_lang(uid)
-    txt = {
-        "ua": "🧠 Режим OmniHuman активовано!\nНадішли фотографію з обличчям.",
-        "en": "🧠 OmniHuman mode activated!\nSend a face photo.",
-        "es": "🧠 ¡Modo OmniHuman activado!\nEnvía una foto con rostro.",
-        "pt": "🧠 Modo OmniHuman ativado!\nEnvie uma foto com rosto.",
+    labels = get_menu_labels(lang)
+
+    # 🪄 Оживить фото — всегда включает режим фото
+    if text == labels["animate"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        user_mode[uid] = MODE_PHOTO
+
+        prompt_texts = {
+            "ua": "🪄 Надішли мені фото, і я оживлю його. Найкраще працюють фронтальні портрети з хорошим світлом.",
+            "en": "🪄 Send me a photo and I’ll animate it. Front-facing portraits with good light work best.",
+            "es": "🪄 Envíame una foto y la animaré. Los retratos frontales con buena luz funcionan mejor.",
+            "pt": "🪄 Envie uma foto e eu vou animá-la. Retratos de frente com boa iluminação funcionam melhor.",
+        }
+        await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
+        return
+
+    # 🧠 Говорящая голова (Omni)
+    if text == labels["omni"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        user_mode[uid] = MODE_DUB
+
+        prompt_texts = {
+            "ua": "🧠 Режим говорячої голови (OmniHuman).\n\n1) Надішли фото з обличчям\n2) Потім — аудіо (voice або аудіофайл).",
+            "en": "🧠 Talking head mode (OmniHuman).\n\n1) Send a photo with a face\n2) Then send an audio (voice message or audio file).",
+            "es": "🧠 Modo cabeza parlante (OmniHuman).\n\n1) Envía una foto con rostro\n2) Luego envía un audio (nota de voz o archivo).",
+            "pt": "🧠 Modo cabeça falante (OmniHuman).\n\n1) Envie uma foto com rosto\n2) Depois envie um áudio (mensagem de voz ou arquivo).",
+        }
+        await message.answer(prompt_texts.get(lang, prompt_texts["en"]))
+        return
+
+    if text == labels["buy"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        await message.answer(tr(uid, "buy_title"), reply_markup=buy_menu_keyboard(uid))
+        return
+
+    if text == labels["balance"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+
+        credits = await get_user_credits(uid)  # 👈
+
+        await message.answer(
+            tr(uid, "balance_title").format(credits=credits)
+        )
+        return
+
+
+    if text == labels["support"]:
+        awaiting_video_order.pop(uid, None)
+        awaiting_support[uid] = True
+        msg = {
+            "ua": "🆘 Напишіть, будь ласка, своє запитання або проблему одним повідомленням — я передам це живому магу підтримки.",
+            "en": "🆘 Please write your question or issue in one message — I’ll send it to the human support wizard.",
+            "es": "🆘 Escribe tu pregunta o problema en un solo mensaje — lo enviaré al mago de soporte humano.",
+            "pt": "🆘 Escreva sua dúvida ou problema em uma única mensagem — eu vou enviar para o mago humano de suporte.",
+        }.get(lang, "🆘 Please write your question in one message — I’ll send it to human support.")
+        await message.answer(msg)
+        return
+
+    if text == labels["share"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+        share_texts = {
+            "ua": (
+                "📤 Поділись ботом з друзями:\n"
+                "Оживляємо фото в стилі Гаррі Поттера 🎬🪄\n"
+                f"{ref_link}"
+            ),
+            "en": (
+                "📤 Share this bot with friends:\n"
+                "We animate photos like Harry Potter portraits 🎬🪄\n"
+                f"{ref_link}"
+            ),
+            "es": (
+                "📤 Comparte este bot con tus amigos:\n"
+                "Animamos fotos como los retratos de Harry Potter 🎬🪄\n"
+                f"{ref_link}"
+            ),
+            "pt": (
+                "📤 Compartilhe este bot com seus amigos:\n"
+                "Animamos fotos como nos retratos de Harry Potter 🎬🪄\n"
+                f"{ref_link}"
+            ),
+        }
+        await message.answer(share_texts.get(lang, share_texts["en"]))
+        return
+
+    if text == labels["order_video"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order[uid] = True
+        msg = {
+            "ua": "🎬 Опиши, будь ласка, яке відео тобі потрібно: формат, тривалість, стиль, для чого воно — і ми звʼяжемося з тобою з детальною пропозицією.",
+            "en": "🎬 Please describe what kind of video you need: format, length, style, purpose — and we’ll get back to you with a custom offer.",
+            "es": "🎬 Describe qué tipo de vídeo necesitas: formato, duración, estilo y propósito — y nos pondremos en contacto contigo con una propuesta.",
+            "pt": "🎬 Descreva que tipo de vídeo você precisa: formato, duração, estilo e objetivo — e entraremos em contato com uma proposta.",
+        }.get(lang, "🎬 Please describe what kind of video you need in one message.")
+        await message.answer(msg)
+        return
+
+    if text == labels["partner"]:
+        awaiting_support.pop(uid, None)
+        awaiting_video_order.pop(uid, None)
+        dash = build_partner_dashboard_text(uid)
+        await message.answer(dash, reply_markup=partner_keyboard(uid))
+        return
+
+    if awaiting_support.get(uid):
+        dest = SUPPORT_CHAT_ID or ADMIN_USER_ID
+        if dest:
+            username = (message.from_user.username if message.from_user else None) or "unknown"
+            header = f"📩 Support message from @{username} (id={uid}):"
+            try:
+                await bot.send_message(
+                    chat_id=dest,
+                    text=f"{header}\n\n{text}"
+                )
+                confirm = tr(uid, "support_sent")
+                await message.answer(confirm)
+            except Exception as e:
+                logger.exception("Failed to send support message: %s", e)
+                await message.answer("⚠️ Support is temporarily unavailable. Please try again later.")
+        else:
+            await message.answer("⚠️ Support is not configured yet. Contact bot admin.")
+        awaiting_support.pop(uid, None)
+        return
+
+    if awaiting_video_order.get(uid):
+        dest = ORDER_CHAT_ID or SUPPORT_CHAT_ID or ADMIN_USER_ID
+        if dest:
+            username = (message.from_user.username if message.from_user else None) or "unknown"
+            header = f"🎬 New video order from @{username} (id={uid}):"
+            try:
+                await bot.send_message(
+                    chat_id=dest,
+                    text=f"{header}\n\n{text}"
+                )
+                confirm = {
+                    "ua": "✅ Дякуємо! Твоє замовлення на відео передано. Ми звʼяжемося з тобою найближчим часом.",
+                    "en": "✅ Thank you! Your video request has been sent. We’ll contact you shortly.",
+                    "es": "✅ ¡Gracias! Tu solicitud de vídeo ha sido enviada. Nos pondremos en contacto contigo pronto.",
+                    "pt": "✅ Obrigado! Seu pedido de vídeo foi enviado. Entraremos em contato em breve.",
+                }.get(lang, "✅ Your video request has been sent. We’ll contact you soon.")
+                await message.answer(confirm)
+            except Exception as e:
+                logger.exception("Failed to send video order message: %s", e)
+                await message.answer("⚠️ Video orders are temporarily unavailable. Please try again later.")
+        else:
+            await message.answer("⚠️ Video order chat is not configured yet. Contact bot admin.")
+        awaiting_video_order.pop(uid, None)
+        return
+    # Остальной текст игнорим — фото и др. обрабатываются отдельными хендлерами
+
+# ---------- Callback: реферальные кнопки (share + stats) ----------
+
+@dp.callback_query(F.data == "ref:share")
+async def on_ref_share(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+    lang = get_lang(uid)
+    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    share_texts = {
+        "ua": (
+            "📤 Поділись ботом з друзями:\n"
+            "Оживляємо фото в стилі Гаррі Поттера 🎬🪄\n"
+            f"{ref_link}"
+        ),
+        "en": (
+            "📤 Share this bot with friends:\n"
+            "We animate photos like Harry Potter portraits 🎬🪄\n"
+            f"{ref_link}"
+        ),
+        "es": (
+            "📤 Comparte este bot con tus amigos:\n"
+            "Animamos fotos como los retratos de Harry Potter 🎬🪄\n"
+            f"{ref_link}"
+        ),
+        "pt": (
+            "📤 Compartilhe este bot com seus amigos:\n"
+            "Animamos fotos como nos retratos de Harry Potter 🎬🪄\n"
+            f"{ref_link}"
+        ),
     }
-    await query.message.answer(txt.get(lang, txt["en"]))
+    await query.message.answer(share_texts.get(lang, share_texts["en"]))
     await query.answer()
 
 
-# ================================================================
-#                ПОЛУЧЕНИЕ ФОТО ДЛЯ OMNI
-# ================================================================
+@dp.callback_query(F.data == "ref:stats")
+async def on_ref_stats(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
 
-async def process_omni_photo(message: Message, uid: int):
-    photo = message.photo[-1]
-    file_info = await bot.get_file(photo.file_id)
-    image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+    text = await build_referral_stats_text(uid)  # 👈
 
-    omni_pending_photo[uid] = image_url
-    lang = get_lang(uid)
+    await query.message.answer(text)
+    await query.answer()
 
-    txt = {
-        "ua": "📸 Фото отримано!\nТепер надішли голосове або аудіофайл.",
-        "en": "📸 Photo received!\nNow send a voice message or audio file.",
-        "es": "📸 ¡Foto recibida!\nAhora envía un mensaje de voz o archivo de audio.",
-        "pt": "📸 Foto recebida!\nAgora envie um áudio.",
-    }
-    await message.answer(txt.get(lang, txt["en"]))
+# ---------- Callback: партнёрский кабинет (share + reload) ----------
 
+@dp.callback_query(F.data == "partner:reload")
+async def on_partner_reload(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+    text = build_partner_dashboard_text(uid)
+    await query.message.edit_text(text, reply_markup=partner_keyboard(uid))
+    await query.answer("Оновлено!")
 
-# ================================================================
-#                ПОЛУЧЕНИЕ АУДИО ДЛЯ OMNI
-# ================================================================
-
-async def process_omni_audio(message: Message, uid: int):
-    file = message.voice or message.audio or message.document
-    if not file:
-        await message.answer("❗ Send a voice or audio file.")
-        return
-
-    file_info = await bot.get_file(file.file_id)
-    audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-
-    omni_pending_audio[uid] = audio_url
-
-    # когда есть фото и аудио → запускаем OmniHuman
-    await run_omni_generation(uid, message)
-
-
-# ================================================================
-#            ЗАПУСК ОМНИ-ГЕНЕРАЦИИ (основной процесс)
-# ================================================================
-
-async def run_omni_generation(uid: int, message: Message):
-    img = omni_pending_photo.get(uid)
-    audio = omni_pending_audio.get(uid)
-
-    if not img:
-        await message.answer("❗ Спочатку пришліть фото.")
-        return
-
-    if not audio:
-        await message.answer("❗ Тепер надішліть аудіо.")
-        return
-
-    lang = get_lang(uid)
-
-    await message.answer(tr(uid, "status_work"))
-
-    # списываем 400 ⭐ (если не TEST_MODE)
-    is_admin = uid == ADMIN_USER_ID
-    if not (TEST_MODE and is_admin):
-        ok, new_balance = await consume_user_credit(uid, OMNI_PRICE)
-        if not ok:
-            await message.answer("⚠️ Недостатньо ⭐. Купи пакет у меню!")
-            return
-
-    # запускаем Replicate
-    result = await omni_talking_head(img, audio)
-
-    if not result.get("ok"):
-        await message.answer("⚠️ OmniHuman overloaded. Try again later.")
-        return
-
-    # скачиваем полученное видео
-    url = result["url"]
-    tmp = f"/tmp/omni_{uid}.mp4"
-    await download_file(url, tmp)
-
-    await bot.send_video(
-        uid,
-        FSInputFile(tmp),
-        caption="🎉 Готово! Це твоє Omni-вiдео.",
-        reply_markup=buy_cta_keyboard(uid)
-    )
-
-    try:
-        os.remove(tmp)
-    except:
-        pass
-
-    # очистка
-    omni_pending_photo.pop(uid, None)
-    omni_pending_audio.pop(uid, None)
-
-
-# ================================================================
-#       МАРШРУТИЗАЦИЯ (куда отправлять фото/аудио)
-# ================================================================
-
+# ---------- Фото ----------
 @dp.message(F.photo)
 async def on_photo(message: Message):
-    uid = message.from_user.id
-    mode = get_mode(uid)
+    uid = message.from_user.id if message.from_user else 0
 
-    if mode == MODE_DUB:
-        await process_omni_photo(message, uid)
-        return
-
-    # обычная анимация фото → блок 5
-    await process_photo_mode(message)
-
-
-@dp.message(F.voice | F.audio | F.document)
-async def on_audio(message: Message):
-    uid = message.from_user.id
-    mode = get_mode(uid)
-
-    if mode == MODE_DUB:
-        await process_omni_audio(message, uid)
-# ================================================================
-#                      ОБЫЧНАЯ АНИМАЦИЯ ФОТО
-# ================================================================
-
-pending_photo: dict[int, dict] = {}      # uid → {file_id, caption, is_old_like}
-pending_choice: dict[int, dict] = {}     # uid → {"type": preset|caption, "idx": X}
-
-
-# ================================================================
-#                     ПОЛУЧЕНИЕ ФОТО В MODE_PHOTO
-# ================================================================
-
-async def process_photo_mode(message: Message):
-    uid = message.from_user.id
-    lang = get_lang(uid)
-
-    # ——— регистрация пользователя в БД ———
+    # ✅ Регистрируем пользователя в БД (таблица users по tg_id)
     await ensure_user(uid)
 
-    photo = message.photo[-1]
-    width, height = photo.width, photo.height
-    file_size = getattr(photo, "file_size", 0) or 0
+    # 🔹 Если register_user делает что-то ещё (настройка режима, локали и т.п.) — оставляем
+    register_user(uid)
 
-    # ——— проверка лимитов (бесплатка или кредиты) ———
-    is_admin = uid == ADMIN_USER_ID
+    # как и было
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
+
+    mode = get_mode(uid)
+
+    # ------ 1) Режим говорящей головы (OmniHuman) ------
+    if mode == MODE_DUB:
+        photo = message.photo[-1]
+        file_info = await bot.get_file(photo.file_id)
+        image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        omni_pending_photo[uid] = image_url
+
+        lang = get_lang(uid)
+        texts = {
+            "ua": "✅ Фото збережено! Тепер надішли аудіо (voice або аудіофайл).",
+            "en": "✅ Photo saved! Now send an audio (voice message or audio file).",
+            "es": "✅ Foto guardada. Ahora envía un audio.",
+            "pt": "✅ Foto salva! Agora envie um áudio.",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
+
+    # ------ 2) Обычная анимация фото (как было раньше), но через Postgres ------
+    is_admin = (uid == ADMIN_USER_ID)
+
+    # 🧠 Лимиты: если не тестовый админ, проверяем, можно ли вообще продолжать
     if not (TEST_MODE and is_admin):
+        # использовал ли юзер бесплатное оживление?
         free_used = await has_used_free(uid)
+
         if free_used:
-            balance = await get_user_credits(uid)
-            if balance <= 0:
+            # бесплатка уже была → смотрим баланс кредитов
+            credits_balance = await get_user_credits(uid)
+
+            if credits_balance <= 0:
+                # ❌ ни бесплатки, ни кредитов — дальше не пускаем
                 await message.answer(tr(uid, "free_used"))
                 return
+        # если free_used == False → бесплатка ещё не использована, пропускаем дальше без проверок
 
-    # ——— анализ качества фото ———
+    # дальше оставляем твою логику без изменений
+    photo = message.photo[-1]
+
+    width = photo.width
+    height = photo.height
+    file_size = getattr(photo, "file_size", 0) or 0
+
     area = width * height
     is_small_res = area < 400_000 or max(width, height) < 700
-    is_small_size = file_size < 200_000
+    is_small_size = file_size and file_size < 200_000
 
     is_old_like = is_small_res or is_small_size
 
@@ -904,764 +1842,182 @@ async def process_photo_mode(message: Message):
     }
     pending_choice.pop(uid, None)
 
-    # ——— если фото похоже на старое → сразу предлагаем пресет №5 ———
+    lang = get_lang(uid)
+
     if is_old_like:
         idx = 4
         pending_choice[uid] = {"type": "preset", "idx": idx}
 
-        title = PRESET_TITLES.get(lang, PRESET_TITLES["en"])[idx]
-        desc = LOCALES.get(lang, {}).get("preset_desc", {}).get(str(idx+1), "")
-
-        msg = (
-            f"🎨 {title}\n\n"
-            f"{desc}\n\n"
-            f"{tr(uid, 'confirm_old')}"
-        )
-
-        await message.answer(msg, reply_markup=confirm_preset_keyboard(uid))
-        return
-
-    # ——— обычное фото → показываем выбор пресета ———
-    await message.answer(
-        tr(uid, "choose_preset"),
-        reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"]))
-    )
-
-
-# ================================================================
-#                     ПОДТВЕРЖДЕНИЕ ВЫБОРА ПРЕСЕТА
-# ================================================================
-
-@dp.callback_query(F.data.startswith("preset:"))
-async def choose_preset(query: CallbackQuery):
-    uid = query.from_user.id
-    idx = int(query.data.split(":")[1])
-
-    pending_choice[uid] = {"type": "preset", "idx": idx}
-    await query.message.edit_text(tr(uid, "confirm_preset"), reply_markup=confirm_preset_keyboard(uid))
-    await query.answer()
-
-
-# ================================================================
-#                           ПОДТВЕРЖДЕНИЕ OK
-# ================================================================
-
-@dp.callback_query(F.data == "confirm:ok")
-async def on_confirm_ok(query: CallbackQuery):
-    uid = query.from_user.id
-    lang = get_lang(uid)
-    info = pending_photo.get(uid)
-    choice = pending_choice.get(uid)
-
-    if not info or not choice:
-        await query.message.edit_text(tr(uid, "done"))
-        await query.answer()
-        return
-
-    # ——— готовим prompt ———
-    if choice["type"] == "caption":
-        prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
-    else:
-        idx = int(choice["idx"])
-        prompt = get_preset_prompt(lang, idx)
-
-    await query.message.edit_text(tr(uid, "status_work"))
-    await query.answer()
-
-    # ——— получаем прямую ссылку фото ———
-    try:
-        file_info = await bot.get_file(info["file_id"])
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-    except Exception:
-        await query.message.edit_text("Error loading file.")
-        return
-
-    # ——— вызов Replicate ———
-    result = await animate_photo_via_replicate(
-        source_image_url=file_url,
-        prompt=prompt,
-    )
-
-    if not result.get("ok"):
-        await query.message.edit_text(
-            "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
-        )
-        return
-
-    # ——— скачиваем видео ———
-    video_url = result["url"]
-    tmp_path = f"/tmp/anim_{uid}.mp4"
-
-    try:
-        await download_file(video_url, tmp_path)
-    except Exception:
-        await query.message.edit_text("Error downloading result.")
-        return
-
-    # ——— watermark ———
-    wm_map = {
-        "ua": "\n\n🔖 Зроблено в Magl’sBot",
-        "en": "\n\n🔖 Made with Magl’sBot",
-        "es": "\n\n🔖 Hecho en Magl’sBot",
-        "pt": "\n\n🔖 Feito no Magl’sBot",
-    }
-    watermark = wm_map.get(lang, wm_map["en"])
-
-    # ——— отправляем видео ———
-    await bot.send_video(
-        uid,
-        video=FSInputFile(tmp_path),
-        caption=tr(uid, "done") + watermark,
-        reply_markup=buy_cta_keyboard(uid),
-    )
-
-    # ——— реферальное сообщение ———
-    await bot.send_message(uid, referral_info_text(lang))
-
-    # =====================================================
-    #               СПИСАНИЕ КРЕДИТОВ / БЕСПЛАТКА
-    # =====================================================
-
-    is_admin = uid == ADMIN_USER_ID
-
-    if not (TEST_MODE and is_admin):
-        free_used = await has_used_free(uid)
-
-        if not free_used:
-            await mark_free_used(uid)
-        else:
-            await consume_user_credit(uid, 1)
-
-    # ——— очищаем временные данные ———
-    try:
-        os.remove(tmp_path)
-    except:
-        pass
-
-    pending_photo.pop(uid, None)
-    pending_choice.pop(uid, None)
-# ================================================================
-#                        BLOCK 6 — STARS SYSTEM
-# ================================================================
-
-OMNI_PRICE = 400     # стоимость OmniHuman
-PHOTO_PRICE = 1      # стоимость обычной анимации
-REFERRAL_BONUS = 20  # бонус за приглашенного
-
-# пакеты пополнения Stars
-PACKAGES = {
-    "pack_1":  {"stars": 10,  "price": 10,  "title": "10 Stars"},
-    "pack_5":  {"stars": 50,  "price": 50,  "title": "50 Stars"},
-    "pack_10": {"stars": 100, "price": 100, "title": "100 Stars"},
-    "pack_25": {"stars": 250, "price": 250, "title": "250 Stars"},
-}
-
-
-# ================================================================
-#                   PostgreSQL Stars functions
-# ================================================================
-
-async def get_stars(uid: int) -> int:
-    row = await _pool.fetchrow(
-        "SELECT stars_balance FROM ref_stars WHERE user_id=$1",
-        uid
-    )
-    if not row:
-        await _pool.execute(
-            "INSERT INTO ref_stars (user_id, stars_balance) VALUES ($1, 0)",
-            uid
-        )
-        return 0
-    return row["stars_balance"]
-
-
-async def add_stars(uid: int, amount: int):
-    await _pool.execute("""
-        INSERT INTO ref_stars (user_id, stars_balance)
-        VALUES ($1, $2)
-        ON CONFLICT (user_id)
-        DO UPDATE SET stars_balance = ref_stars.stars_balance + $2
-    """, uid, amount)
-
-
-async def consume_stars(uid: int, amount: int) -> bool:
-    balance = await get_stars(uid)
-    if balance < amount:
-        return False
-
-    await _pool.execute(
-        "UPDATE ref_stars SET stars_balance = stars_balance - $1 WHERE user_id=$2",
-        amount, uid
-    )
-    return True
-
-
-# ================================================================
-#                     Referral bonus (Stars)
-# ================================================================
-
-async def apply_referral_bonus(invited_id: int):
-    row = await _pool.fetchrow(
-        "SELECT inviter_id FROM referrals WHERE invited_id=$1",
-        invited_id
-    )
-    if not row:
-        return
-
-    inviter = row["inviter_id"]
-    await add_stars(inviter, REFERRAL_BONUS)
-
-    try:
-        await bot.send_message(
-            inviter,
-            f"🎁 Ваш друг поповнив баланс!\nВи отримали +{REFERRAL_BONUS}⭐"
-        )
-    except:
-        pass
-
-
-# ================================================================
-#                       Buy Stars keyboard
-# ================================================================
-
-def buy_stars_keyboard(uid: int) -> InlineKeyboardMarkup:
-    btns = []
-    for key, pack in PACKAGES.items():
-        btns.append([
-            InlineKeyboardButton(
-                text=f"{pack['title']} — {pack['price']}⭐",
-                callback_data=f"buy:{key}"
-            )
-        ])
-    return InlineKeyboardMarkup(inline_keyboard=btns)
-
-
-# ================================================================
-#                       /balance command
-# ================================================================
-
-@dp.message(Command("balance"))
-async def show_balance(message: Message):
-    uid = message.from_user.id
-    bal = await get_stars(uid)
-
-    txt = (
-        f"💰 <b>Ваш баланс:</b> {bal}⭐\n\n"
-        f"Щоб поповнити — оберіть пакет нижче."
-    )
-    await message.answer(txt, reply_markup=buy_stars_keyboard(uid))
-
-
-# ================================================================
-#                     Нажатие “Купить Stars”
-# ================================================================
-
-@dp.callback_query(F.data.startswith("buy:"))
-async def buy_package(query: CallbackQuery):
-    uid = query.from_user.id
-    pack_id = query.data.split(":")[1]
-
-    if pack_id not in PACKAGES:
-        await query.answer("Unknown pack")
-        return
-
-    pack = PACKAGES[pack_id]
-
-    await bot.send_invoice(
-        chat_id=uid,
-        title=f"Buy {pack['title']}",
-        description="Поповнення балансу Stars у Magl’sBot",
-        payload=pack_id,
-        currency="XTR",
-        prices=[LabeledPrice(label=pack["title"], amount=pack["price"])],
-        start_parameter="buy_stars"
-    )
-
-    await query.answer()
-
-
-# ================================================================
-#                     Stars checkout callback
-# ================================================================
-
-@dp.pre_checkout_query()
-async def process_pre_checkout(pre_checkout_q: PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=True)
-
-
-# ================================================================
-#                    Successful payment handler
-# ================================================================
-
-@dp.message(F.successful_payment)
-async def success_payment(message: Message):
-    uid = message.from_user.id
-    payload = message.successful_payment.invoice_payload
-
-    if payload not in PACKAGES:
-        await message.answer("❗ Unknown package.")
-        return
-
-    pack = PACKAGES[payload]
-
-    # начисляем Stars
-    await add_stars(uid, pack["stars"])
-
-    # реферальный бонус (если есть пригласивший)
-    await apply_referral_bonus(uid)
-
-    await message.answer(
-        f"🎉 Поповнення успішне!\n"
-        f"Вам зараховано {pack['stars']}⭐.\n\n"
-        f"Перевірити баланс → /balance"
-    )
-# ================================================================
-#                    BLOCK 7 — MAIN MENU & UX
-# ================================================================
-
-# ---------- Локализованные подписи меню ----------
-MENU_LABELS = {
-    "ua": {
-        "animate": "🪄 Оживити фото",
-        "omni": "🧠 Говоряча голова (Omni)",
-        "buy": "💫 Купити Stars",
-        "balance": "💰 Баланс",
-        "support": "🆘 Підтримка",
-        "share": "📤 Розповісти друзям",
-        "partner": "🤝 Партнерський кабінет",
-    },
-    "en": {
-        "animate": "🪄 Animate photo",
-        "omni": "🧠 Talking head (Omni)",
-        "buy": "💫 Buy Stars",
-        "balance": "💰 Balance",
-        "support": "🆘 Support",
-        "share": "📤 Tell friends",
-        "partner": "🤝 Partner dashboard",
-    },
-    "es": {
-        "animate": "🪄 Animar foto",
-        "omni": "🧠 Cabeza parlante (Omni)",
-        "buy": "💫 Comprar Stars",
-        "balance": "💰 Balance",
-        "support": "🆘 Soporte",
-        "share": "📤 Compartir",
-        "partner": "🤝 Panel de socio",
-    },
-    "pt": {
-        "animate": "🪄 Animação de foto",
-        "omni": "🧠 Cabeça falante (Omni)",
-        "buy": "💫 Comprar Stars",
-        "balance": "💰 Saldo",
-        "support": "🆘 Suporte",
-        "share": "📤 Compartilhar",
-        "partner": "🤝 Painel de parceiro",
-    },
-}
-
-def get_labels(lang: str) -> dict:
-    return MENU_LABELS.get(lang, MENU_LABELS["en"])
-
-
-# ---------- Главное меню ----------
-def main_menu(uid: int) -> ReplyKeyboardMarkup:
-    lang = get_lang(uid)
-    L = get_labels(lang)
-
-    return ReplyKeyboardMarkup(
-        resize_keyboard=True,
-        keyboard=[
-            [KeyboardButton(L["animate"]), KeyboardButton(L["omni"])],
-            [KeyboardButton(L["buy"]), KeyboardButton(L["balance"])],
-            [KeyboardButton(L["support"]), KeyboardButton(L["share"])],
-            [KeyboardButton(L["partner"])],
-        ],
-    )
-
-
-# ---------- /menu ----------
-@dp.message(Command("menu"))
-async def cmd_menu(message: Message):
-    uid = message.from_user.id
-    await message.answer("Меню оновлено ⬇️", reply_markup=main_menu(uid))
-
-
-# ================================================================
-#            Main menu text commands (UX routing)
-# ================================================================
-
-@dp.message(F.text)
-async def handle_menu_buttons(message: Message):
-    uid = message.from_user.id
-    lang = get_lang(uid)
-    L = get_labels(lang)
-    text = message.text.strip()
-
-    # -------------------
-    # 1) ОЖИВИТЬ ФОТО
-    # -------------------
-    if text == L["animate"]:
-        user_mode[uid] = MODE_PHOTO
-        await message.answer(
-            {
-                "ua": "🪄 Надішли мені фото, і я оживлю його!",
-                "en": "🪄 Send me a photo and I’ll animate it!",
-                "es": "🪄 Envíame una foto y la animaré!",
-                "pt": "🪄 Envie uma foto e eu vou animá-la!",
-            }.get(lang),
-            reply_markup=main_menu(uid),
-        )
-        return
-
-    # -------------------
-    # 2) OMNI HUMAN
-    # -------------------
-    if text == L["omni"]:
-        user_mode[uid] = MODE_DUB
-        await message.answer(
-            {
-                "ua": "🧠 Спочатку надішли фото з обличчям, потім аудіо.",
-                "en": "🧠 Send a face photo first, then an audio message.",
-                "es": "🧠 Envía una foto con rostro y luego el audio.",
-                "pt": "🧠 Envie uma foto com rosto e depois um áudio.",
-            }.get(lang),
-            reply_markup=main_menu(uid),
-        )
-        return
-
-    # -------------------
-    # 3) ПОКУПКА STARS
-    # -------------------
-    if text == L["buy"]:
-        await message.answer(
-            "💫 Обери пакет Stars:",
-            reply_markup=buy_stars_keyboard(uid)
-        )
-        return
-
-    # -------------------
-    # 4) БАЛАНС
-    # -------------------
-    if text == L["balance"]:
-        bal = await get_stars(uid)
-        await message.answer(
-            f"💰 Ваш баланс: <b>{bal}</b>⭐",
-            reply_markup=main_menu(uid)
-        )
-        return
-
-    # -------------------
-    # 5) ПОДДЕРЖКА
-    # -------------------
-    if text == L["support"]:
-        await message.answer(
-            {
-                "ua": "🆘 Напишіть своє питання одним повідомленням.",
-                "en": "🆘 Write your question in one message.",
-                "es": "🆘 Escribe tu pregunta en un mensaje.",
-                "pt": "🆘 Envie sua dúvida em uma mensagem.",
-            }.get(lang)
-        )
-        awaiting_support[uid] = True
-        return
-
-    # -------------------
-    # 6) ПОДЕЛИТЬСЯ
-    # -------------------
-    if text == L["share"]:
-        link = f"https://t.me/{(await bot.me()).username}?start=ref_{uid}"
-        await message.answer(
-            {
-                "ua": f"📤 Поділись магією!\nТвоє посилання:\n{link}",
-                "en": f"📤 Share the magic!\Your link:\n{link}",
-                "es": f"📤 ¡Comparte la magia!\nTu enlace:\n{link}",
-                "pt": f"📤 Compartilhe a magia!\nSeu link:\n{link}",
-            }.get(lang)
-        )
-        return
-
-    # -------------------
-    # 7) ПАРТНЕРСКИЙ КАБИНЕТ
-    # -------------------
-    if text == L["partner"]:
-        from math import floor
-
-        total_invited = sum(1 for k, v in ref_inviter.items() if v == uid)
-        bal = await get_stars(uid)
-
-        msg = (
-            f"🤝 <b>Партнерський кабінет</b>\n\n"
-            f"👥 Запрошено: {total_invited}\n"
-            f"⭐ Баланс Stars: {bal}\n\n"
-            f"Поділіться посиланням і заробляйте 20⭐ за кожного друга!"
-        )
-
-        await message.answer(msg, reply_markup=main_menu(uid))
-        return
-
-    # -------------------
-    # 8) Если текст попадает в поддержку
-    # -------------------
-    if awaiting_support.get(uid):
-        try:
-            await bot.send_message(
-                ADMIN_USER_ID,
-                f"📩 Повідомлення у підтримку від @{message.from_user.username}:\n\n{text}"
-            )
-            await message.answer(
-                {
-                    "ua": "✅ Передано у підтримку!",
-                    "en": "✅ Sent to support!",
-                    "es": "✅ Enviado al soporte!",
-                    "pt": "✅ Enviado ao suporte!",
-                }.get(lang)
-            )
-        except:
-            await message.answer("⚠️ Помилка надсилання в підтримку.")
-        awaiting_support.pop(uid, None)
-        return
-# ================================================================
-#                    BLOCK 8 — /start + LANGUAGE + REF
-# ================================================================
-
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    uid = message.from_user.id
-
-    # -------- 1) Регистрируем юзера (DB + память) ----------
-    await ensure_user(uid)
-    register_user(uid)
-
-    # -------- 2) Читаем payload (рефералка) ----------
-    payload = message.text.split(" ", 1)
-    payload = payload[1] if len(payload) > 1 else ""
-
-    if payload.startswith("ref_"):
-        try:
-            inviter_id = int(payload.replace("ref_", ""))
-            if inviter_id != uid:
-                await register_referral(uid, inviter_id)
-        except:
-            pass
-
-    # -------- 3) Если язык не выбран — показываем выбор ----------
-    if uid not in user_lang:
-        try:
-            await message.answer_video(
-                INTRO_VIDEO_FILE_ID,
-                caption="🧙‍♂️ Magl’sBot welcomes you!\n\n✨ Choose your language:",
-                supports_streaming=True,
-                reply_markup=lang_choice_keyboard(),
-            )
-        except:
-            await message.answer(
-                "🧙‍♂️ Magl’sBot welcomes you!\n\n✨ Choose your language:",
-                reply_markup=lang_choice_keyboard()
-            )
-        return
-
-    # -------- 4) Язык уже выбран → приветственный экран ----------
-    lang = get_lang(uid)
-
-    try:
-        await message.answer_video(
-            INTRO_VIDEO_FILE_ID,
-            supports_streaming=True
-        )
-    except:
-        pass
-
-    welcome_text = {
-        "ua": "🪄 Надішли мені фото — я оживлю його!",
-        "en": "🪄 Send me a photo and I will animate it!",
-        "es": "🪄 Envíame una foto y la animaré!",
-        "pt": "🪄 Envie uma foto e eu vou animá-la!",
-    }.get(lang, "Send me a photo!")
-
-    await message.answer(welcome_text, reply_markup=main_menu(uid))
-# ---------- Выбор языка ----------
-@dp.callback_query(F.data.startswith("lang:"))
-async def set_lang(query: CallbackQuery):
-    uid = query.from_user.id
-    _, code = query.data.split(":")
-
-    if code not in LOCALES:
-        await query.answer("Language not available", show_alert=True)
-        return
-
-    user_lang[uid] = code
-    register_user(uid)
-
-    # режим по умолчанию
-    user_mode[uid] = MODE_PHOTO
-
-    # подтверждение
-    await query.message.edit_caption(tr(uid, "lang_set")) if query.message.caption \
-        else await query.message.edit_text(tr(uid, "lang_set"))
-
-    # показать выбор режима
-    await query.message.answer(
-        mode_choice_text(code),
-        reply_markup=mode_choice_keyboard(code)
-    )
-
-    await query.answer()
-# ---------- Выбор режима Photo ----------
-@dp.callback_query(F.data == "mode:photo")
-async def set_mode_photo(query: CallbackQuery):
-    uid = query.from_user.id
-    user_mode[uid] = MODE_PHOTO
-    lang = get_lang(uid)
-
-    text = {
-        "ua": "✨ Режим: оживлення фото.\nНадішли мені фото 🪄",
-        "en": "✨ Mode: photo animation.\nSend me a photo 🪄",
-        "es": "✨ Modo: animar foto.\nEnvíame una foto 🪄",
-        "pt": "✨ Modo: animação de foto.\nEnvie uma foto 🪄",
-    }.get(lang)
-
-    await query.message.answer(text, reply_markup=main_menu(uid))
-    await query.answer()
-
-
-# ---------- Выбор режима Omni ----------
-@dp.callback_query(F.data == "mode:dub")
-async def set_mode_dub(query: CallbackQuery):
-    uid = query.from_user.id
-    user_mode[uid] = MODE_DUB
-    lang = get_lang(uid)
-
-    text = {
-        "ua": "🧠 Режим Omni.\n1) Надішли фото\n2) Потім аудіо",
-        "en": "🧠 Omni mode.\n1) Send a photo\n2) Then send audio",
-        "es": "🧠 Modo Omni.\n1) Envía foto\n2) Luego audio",
-        "pt": "🧠 Modo Omni.\n1) Envie foto\n2) Depois áudio",
-    }.get(lang)
-
-    await query.message.answer(text, reply_markup=main_menu(uid))
-    await query.answer()
-# ================================================================
-#                     BLOCK 9 — PHOTO HANDLER
-# ================================================================
-
-@dp.message(F.photo)
-async def handle_photo(message: Message):
-    uid = message.from_user.id
-
-    await ensure_user(uid)
-    register_user(uid)
-
-    awaiting_support.pop(uid, None)
-    awaiting_video_order.pop(uid, None)
-
-    mode = get_mode(uid)
-
-    # ------------------------------------------------------------
-    # 1) Если Omni режим — просто сохраняем фото и ждём аудио
-    # ------------------------------------------------------------
-    if mode == MODE_DUB:
-        photo = message.photo[-1]
-        file_info = await bot.get_file(photo.file_id)
-        image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-
-        omni_pending_photo[uid] = image_url
-
-        await message.answer({
-            "ua": "✅ Фото збережено! Тепер надішли аудіо.",
-            "en": "✅ Photo saved! Now send audio.",
-            "es": "✅ Foto guardada. Ahora envía el audio.",
-            "pt": "✅ Foto salva! Agora envie o áudio."
-        }.get(get_lang(uid)))
-
-        return
-
-    # ------------------------------------------------------------
-    # 2) Проверяем бесплатную анимацию / баланс Stars
-    # ------------------------------------------------------------
-    lang = get_lang(uid)
-    is_admin = uid == ADMIN_USER_ID
-    free_used = await has_used_free(uid)
-
-    if not (TEST_MODE and is_admin):  # админ в тесте — без ограничений
-        if free_used:
-            credits = await get_user_credits(uid)
-            if credits <= 0:
-                await message.answer(
-                    tr(uid, "free_used"),
-                    reply_markup=buy_cta_keyboard(uid)
-                )
-                return
-
-    # ------------------------------------------------------------
-    # 3) Сохраняем фото в pending_photo
-    # ------------------------------------------------------------
-    photo = message.photo[-1]
-    width = photo.width
-    height = photo.height
-    file_size = getattr(photo, "file_size", 0) or 0
-
-    area = width * height
-    is_small_res = area < 400_000 or max(width, height) < 700
-    is_small_size = file_size and file_size < 200_000
-
-    looks_old = is_small_res or is_small_size
-
-    pending_photo[uid] = {
-        "file_id": photo.file_id,
-        "caption": (message.caption or "").strip(),
-        "is_old": looks_old
-    }
-    pending_choice.pop(uid, None)
-
-    # ------------------------------------------------------------
-    # 4) Если фото похоже на старое → авто-пресет Blink&Glow (#4)
-    # ------------------------------------------------------------
-    if looks_old:
-        idx = 4
-        pending_choice[uid] = {"type": "preset", "idx": idx}
-
         titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
-        title = titles[idx]
+        title_txt = titles[idx] if 0 <= idx < len(titles) else "Blink & Glow"
 
-        desc_map = LOCALES.get(lang).get("preset_desc", {})
-        desc = desc_map.get(str(idx+1), "")
+        desc_map = LOCALES.get(lang, {}).get("preset_desc", {})
+        desc = desc_map.get(str(idx + 1), "") if isinstance(desc_map, dict) else ""
 
-        confirm = {
+        confirm_texts = {
             "ua": "✨ Це фото виглядає як старе. Використати цей пресет?",
             "en": "✨ This photo looks old. Use this preset?",
             "es": "✨ Esta foto parece antigua. ¿Usar este preset?",
-            "pt": "✨ Esta foto parece antiga. Usar este preset?"
-        }.get(lang)
+            "pt": "✨ Esta foto parece antiga. Usar este preset?",
+        }
+        confirm_line = confirm_texts.get(lang, confirm_texts["en"])
+
+        header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}".strip()
 
         await message.answer(
-            f"🎨 {title}\n\n{desc}\n\n{confirm}",
+            header_text,
             reply_markup=confirm_preset_keyboard(uid)
         )
         return
 
-    # ------------------------------------------------------------
-    # 5) Обычный выбор пресета
-    # ------------------------------------------------------------
     await message.answer(
         tr(uid, "choose_preset"),
-        reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"]))
+        reply_markup=preset_keyboard(uid, has_caption=bool(pending_photo[uid]["caption"])),
     )
-# ================================================================
-#                     BLOCK 9.2 — PRESET SELECTION
-# ================================================================
+
+
+# ---------- Аудио для OmniHuman ----------
+@dp.message(F.audio | F.voice)
+async def on_audio_omni(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    register_user(uid)
+    awaiting_support.pop(uid, None)
+    awaiting_video_order.pop(uid, None)
+
+    # работаем только в режиме говорящей головы
+    if get_mode(uid) != MODE_DUB:
+        return
+
+    image_url = omni_pending_photo.get(uid)
+    if not image_url:
+        lang = get_lang(uid)
+        texts = {
+            "ua": "Спочатку надішли фото 🙂",
+            "en": "First send a photo 🙂",
+            "es": "Primero envía una foto 🙂",
+            "pt": "Primeiro envie uma foto 🙂",
+        }
+        await message.answer(texts.get(lang, texts["en"]))
+        return
+
+    lang = get_lang(uid)
+    is_admin = (uid == ADMIN_USER_ID)
+
+    # ---- ПРОВЕРКА СТАРОВ ДЛЯ OMNI ----
+    # В TEST_MODE для админа — без списаний и без проверок
+    if not (TEST_MODE and is_admin):
+        credits = await get_user_credits(uid)  # 👈 из БД
+        if credits < OMNI_PRICE:
+            not_enough_texts = {
+                "ua": (
+                    f"🧠 Режим говорячої голови коштує <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"У тебе зараз {credits} ⭐️.\n\nНатисни кнопку нижче, щоб поповнити баланс."
+                ),
+                "en": (
+                    f"🧠 Talking head mode costs <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"You now have {credits} ⭐️.\n\nTap the button below to top up."
+                ),
+                "es": (
+                    f"🧠 El modo cabeza parlante cuesta <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"Ahora tienes {credits} ⭐️.\n\nPulsa el botón de abajo para recargar."
+                ),
+                "pt": (
+                    f"🧠 O modo cabeça falante custa <b>{OMNI_PRICE} Stars</b>.\n"
+                    f"Você tem {credits} ⭐️.\n\nToque no botão abaixo para recarregar."
+                ),
+            }
+            await message.answer(
+                not_enough_texts.get(lang, not_enough_texts["en"]),
+                reply_markup=buy_cta_keyboard(uid),
+            )
+            return
+
+    # ---- Получаем URL аудио из Telegram ----
+    audio_file_id = message.audio.file_id if message.audio else message.voice.file_id
+    file_info_a = await bot.get_file(audio_file_id)
+    audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info_a.file_path}"
+
+    msg = await message.answer(
+        {
+            "ua": "🎧 Створюю відео…",
+            "en": "🎧 Creating video…",
+            "es": "🎧 Creando vídeo…",
+            "pt": "🎧 Criando vídeo…",
+        }.get(lang, "🎧 Creating video…")
+    )
+
+    global gen_success, gen_fail
+
+    try:
+        result = await omni_talking_head(image_url=image_url, audio_url=audio_url)
+    except Exception as e:
+        gen_fail += 1
+        await msg.edit_text(f"⚠️ Omni exception: {e}")
+        return
+
+    if not result.get("ok"):
+        gen_fail += 1
+        await msg.edit_text(f"⚠️ Omni error: {result.get('error')}")
+        return
+
+    gen_success += 1
+    out_url = result["url"]
+
+    tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"omni_{uid}.mp4")
+    try:
+        # качаем файл, чтобы отправить как видео
+        await download_file(out_url, tmp_path)
+
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        wm_map = {
+            "ua": "\n\n🔖 Зроблено в Magl’sBot (OmniHuman)",
+            "en": "\n\n🔖 Made with Magl’sBot (OmniHuman)",
+            "es": "\n\n🔖 Hecho con Magl’sBot (OmniHuman)",
+            "pt": "\n\n🔖 Feito com Magl’sBot (OmniHuman)",
+        }
+        watermark_suffix = wm_map.get(lang, wm_map["en"])
+
+        await bot.send_video(
+            chat_id=message.chat.id,
+            video=FSInputFile(tmp_path),
+            caption=tr(uid, "done") + watermark_suffix,
+            reply_markup=buy_cta_keyboard(uid),
+        )
+
+        # 💰 списываем 400 "кредитов" за Omni в БД (кроме админа в TEST_MODE)
+        if not (TEST_MODE and is_admin):
+            ok, new_balance = await consume_user_credit(uid, OMNI_PRICE)
+            if not ok:
+                logger.warning("User %s had insufficient credits when charging Omni", uid)
+
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+    # очищаем сохранённое фото, чтобы следующая Omni была с новым фото
+    omni_pending_photo.pop(uid, None)
+
+
+
 
 @dp.callback_query(F.data.startswith("preset:"))
-async def handle_preset(query: CallbackQuery):
+async def on_preset(query: CallbackQuery):
     uid = query.from_user.id
-    lang = get_lang(uid)
+    register_user(uid)
+    data = query.data.split(":", 1)[1]
+    info = pending_photo.get(uid)
 
-    if uid not in pending_photo:
+    if not info:
+        await query.message.edit_text(tr(uid, "done"))
         await query.answer()
         return
 
-    data = query.data.split(":", 1)[1]
-
-    # CANCEL
     if data == "cancel":
         pending_photo.pop(uid, None)
         pending_choice.pop(uid, None)
@@ -1669,295 +2025,200 @@ async def handle_preset(query: CallbackQuery):
         await query.answer()
         return
 
-    # USE CAPTION
+    lang = get_lang(uid)
+
+    confirm_texts = {
+        "ua": "✅ Запустити анімацію з цим пресетом?",
+        "en": "✅ Start animation with this preset?",
+        "es": "✅ ¿Iniciar la animación con este preset?",
+        "pt": "✅ Iniciar a animação com este preset?",
+    }
+    confirm_line = confirm_texts.get(lang, confirm_texts["en"])
+
     if data == "usecap":
         pending_choice[uid] = {"type": "caption", "idx": None}
-        caption = pending_photo[uid]["caption"]
-        confirm = {
-            "ua": "Запустити анімацію з цим описом?",
-            "en": "Start with this caption?",
-            "es": "¿Usar este texto?",
-            "pt": "Iniciar com esta descrição?"
-        }.get(lang)
-        await query.message.edit_text(
-            f"📝 {caption}\n\n{confirm}",
-            reply_markup=confirm_preset_keyboard(uid)
-        )
+        desc = info["caption"] or ""
+        if desc:
+            header_text = f"📝 {desc}\n\n{confirm_line}"
+        else:
+            header_text = confirm_line
+        await query.message.edit_text(header_text, reply_markup=confirm_preset_keyboard(uid))
         await query.answer()
         return
 
-    # RANDOM PRESET
     if data == "random":
         idx = random.randint(0, len(PRESET_PROMPTS_BASE) - 1)
     else:
         idx = int(data) - 1
+        if idx < 0 or idx >= len(PRESET_PROMPTS_BASE):
+            await query.answer("Unknown preset")
+            return
 
     pending_choice[uid] = {"type": "preset", "idx": idx}
 
     titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
-    title = titles[idx]
+    title_txt = titles[idx] if 0 <= idx < len(titles) else "Preset"
 
-    desc_map = LOCALES.get(lang).get("preset_desc", {})
-    desc = desc_map.get(str(idx+1), "")
+    desc_map = LOCALES.get(lang, {}).get("preset_desc", {})
+    desc = ""
+    if isinstance(desc_map, dict):
+        desc = desc_map.get(str(idx + 1), "")
 
-    confirm = {
-        "ua": "Запустити анімацію з цим пресетом?",
-        "en": "Start animation with this preset?",
-        "es": "¿Iniciar con este preset?",
-        "pt": "Iniciar com este preset?"
-    }.get(lang)
+    if desc:
+        header_text = f"🎨 {title_txt}\n\n{desc}\n\n{confirm_line}"
+    else:
+        header_text = f"🎨 {title_txt}\n\n{confirm_line}"
 
-    await query.message.edit_text(
-        f"🎨 {title}\n\n{desc}\n\n{confirm}",
-        reply_markup=confirm_preset_keyboard(uid)
-    )
+    await query.message.edit_text(header_text, reply_markup=confirm_preset_keyboard(uid))
     await query.answer()
-# ================================================================
-#                     BLOCK 9.3 — BACK BUTTON
-# ================================================================
+
+# ---------- Подтверждение пресета (✅ / 🔙) ----------
 
 @dp.callback_query(F.data == "confirm:back")
-async def preset_back(query: CallbackQuery):
+async def on_confirm_back(query: CallbackQuery):
     uid = query.from_user.id
-
-    if uid not in pending_photo:
+    register_user(uid)
+    info = pending_photo.get(uid)
+    if not info:
+        await query.message.edit_text(tr(uid, "done"))
         await query.answer()
         return
 
-    has_caption = bool(pending_photo[uid]["caption"])
-
+    pending_choice.pop(uid, None)
+    has_caption = bool(info.get("caption"))
     await query.message.edit_text(
         tr(uid, "choose_preset"),
-        reply_markup=preset_keyboard(uid, has_caption)
+        reply_markup=preset_keyboard(uid, has_caption=has_caption),
     )
     await query.answer()
-# ================================================================
-#                 BLOCK 9.4 — CONFIRM & GENERATE
-# ================================================================
+
 
 @dp.callback_query(F.data == "confirm:ok")
-async def start_animation(query: CallbackQuery):
+async def on_confirm_ok(query: CallbackQuery):
     uid = query.from_user.id
-    lang = get_lang(uid)
 
-    if uid not in pending_photo or uid not in pending_choice:
+    # ✅ гарантируем, что юзер есть в таблице users
+    await ensure_user(uid)
+
+    # если register_user делает что-то ещё (локали, режим и т.п.) — оставляем
+    register_user(uid)
+
+    info = pending_photo.get(uid)
+    choice = pending_choice.get(uid)
+    if not info or not choice:
+        await query.message.edit_text(tr(uid, "done"))
         await query.answer()
         return
 
-    info = pending_photo.pop(uid)
-    choice = pending_choice.pop(uid)
+    is_admin = (uid == ADMIN_USER_ID)
 
-    # -------- Get prompt --------
+    lang = get_lang(uid)
     if choice["type"] == "caption":
-        prompt = info["caption"] or "natural smile, cinematic portrait"
+        prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
     else:
-        idx = choice["idx"]
+        idx = int(choice["idx"] or 0)
         prompt = get_preset_prompt(lang, idx)
 
     await query.message.edit_text(tr(uid, "status_work"))
+    await query.answer()
 
-    # -------- Download photo --------
-    file_info = await bot.get_file(info["file_id"])
-    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+    global gen_success, gen_fail
 
-    # -------- Send to Replicate --------
-    result = await animate_photo_via_replicate(file_url, prompt)
+    try:
+        file_info = await bot.get_file(info["file_id"])
+        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
 
-    if not result["ok"]:
-        await query.message.edit_text("⚠️ Server overloaded, try again later.")
-        return
+        result = await animate_photo_via_replicate(
+            source_image_url=file_url,
+            prompt=prompt,
+        )
 
-    out_url = result["url"]
-
-    # -------- Download result --------
-    tmp = f"/tmp/anim_{uid}.mp4"
-    await download_file(out_url, tmp)
-
-    wm = {
-        "ua": "\n\n🔖 Зроблено в Magl’sBot",
-        "en": "\n\n🔖 Made with Magl’sBot",
-        "es": "\n\n🔖 Hecho en Magl’sBot",
-        "pt": "\n\n🔖 Feito no Magl’sBot"
-    }.get(lang)
-
-    # -------- Send video --------
-    await bot.send_video(
-        uid,
-        video=FSInputFile(tmp),
-        caption=tr(uid, "done") + wm,
-        reply_markup=buy_cta_keyboard(uid)
-    )
-
-    # -------- Referral promo --------
-    await bot.send_message(uid, referral_info_text(lang))
-
-    os.remove(tmp)
-
-    # -------- Списание Stars --------
-    is_admin = uid == ADMIN_USER_ID
-
-    if not (TEST_MODE and is_admin):
-        free_used = await has_used_free(uid)
-        if not free_used:
-            await mark_free_used(uid)
-        else:
-            ok, _ = await consume_user_credit(uid, 1)
-            if not ok:
-                logger.warning("Credit mismatch for user %s", uid)
-# ======================================================================
-#                     BLOCK 10 — OMNI AUDIO HANDLER
-# ======================================================================
-
-@dp.message(F.audio | F.voice)
-async def handle_omni_audio(message: Message):
-    uid = message.from_user.id
-    register_user(uid)
-    awaiting_support.pop(uid, None)
-    awaiting_video_order.pop(uid, None)
-
-    lang = get_lang(uid)
-
-    # ------------------------------------------------------------
-    # 1) Проверяем: включён ли у юзера режим Omni
-    # ------------------------------------------------------------
-    if get_mode(uid) != MODE_DUB:
-        return
-
-    # ------------------------------------------------------------
-    # 2) Проверяем: есть ли сохранённое фото
-    # ------------------------------------------------------------
-    if uid not in omni_pending_photo:
-        await message.answer({
-            "ua": "Спочатку надішли фото 🙂",
-            "en": "First send a photo 🙂",
-            "es": "Primero envía una foto 🙂",
-            "pt": "Primeiro envie uma foto 🙂"
-        }.get(lang))
-        return
-
-    image_url = omni_pending_photo[uid]
-
-    # ------------------------------------------------------------
-    # 3) Проверяем баланс Stars (если не админ в TEST_MODE)
-    # ------------------------------------------------------------
-    is_admin = (uid == ADMIN_USER_ID)
-
-    if not (TEST_MODE and is_admin):
-        credits = await get_user_credits(uid)
-        if credits < OMNI_PRICE:
-            await message.answer(
-                {
-                    "ua": f"🧠 Відео Omni коштує <b>{OMNI_PRICE} Stars</b>.\n"
-                          f"У тебе {credits} ⭐.\nПоповни баланс:",
-                    "en": f"🧠 Omni video costs <b>{OMNI_PRICE} Stars</b>.\n"
-                          f"You have {credits} ⭐.\nTop up:",
-                    "es": f"🧠 El vídeo Omni cuesta <b>{OMNI_PRICE} Stars</b>.\n"
-                          f"Tienes {credits} ⭐.\nRecarga:",
-                    "pt": f"🧠 O vídeo Omni custa <b>{OMNI_PRICE} Stars</b>.\n"
-                          f"Você tem {credits} ⭐.\nRecarregue:"
-                }.get(lang),
-                reply_markup=buy_cta_keyboard(uid)
+        # ---- Проверка ответа от Replicate ----
+        if not result.get("ok"):
+            gen_fail += 1
+            err = result.get("error") or "unknown"
+            await query.message.edit_text(
+                "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
             )
             return
 
-    # ------------------------------------------------------------
-    # 4) Извлекаем аудио URL
-    # ------------------------------------------------------------
-    audio_file_id = message.audio.file_id if message.audio else message.voice.file_id
-    file_info_a = await bot.get_file(audio_file_id)
-    audio_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info_a.file_path}"
+        gen_success += 1
 
-    # ------------------------------------------------------------
-    # 5) Отправляем статус «создаю»
-    # ------------------------------------------------------------
-    status_msg = await message.answer(
-        {
-            "ua": "🎧 Створюю відео… (Omni може займати 5–15 хвилин)",
-            "en": "🎧 Creating video… (Omni may take 5–15 minutes)",
-            "es": "🎧 Creando vídeo… (Omni puede tardar 5–15 minutos)",
-            "pt": "🎧 Criando vídeo… (Omni pode levar 5–15 minutos)"
-        }.get(lang)
-    )
+        video_url = result["url"]
+        tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
+        await download_file(video_url, tmp_path)
 
-    # ------------------------------------------------------------
-    # 6) Запускаем Replicate Omni
-    # ------------------------------------------------------------
-    try:
-        result = await omni_talking_head(
-            image_url=image_url,
-            audio_url=audio_url
-        )
     except Exception as e:
-        await status_msg.edit_text(f"⚠️ Omni exception: {e}")
+        gen_fail += 1
+        logger.exception("Animation error: %s", e)
+        await query.message.edit_text("Error while processing. Try another photo.")
         return
 
-    # ------------------------------------------------------------
-    # 7) Проверка результата
-    # ------------------------------------------------------------
-    if not result.get("ok"):
-        await status_msg.edit_text(
-            f"⚠️ Omni error: {result.get('error', 'unknown')}"
-        )
-        return
+    # ---- сюда мы попадаем только если всё ОК ----
 
-    out_url = result["url"]
+    wm_map = {
+        "ua": "\n\n🔖 Зроблено в Magl’sBot",
+        "en": "\n\n🔖 Made with Magl’sBot",
+        "es": "\n\n🔖 Hecho en Magl’sBot",
+        "pt": "\n\n🔖 Feito no Magl’sBot",
+    }
+    watermark_suffix = wm_map.get(lang, "\n\n🔖 Made with Magl’sBot")
 
-    # ------------------------------------------------------------
-    # 8) Скачиваем результат
-    # ------------------------------------------------------------
-    tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"omni_{uid}.mp4")
-
-    try:
-        await download_file(out_url, tmp_path)
-    except Exception as e:
-        await status_msg.edit_text("⚠️ Error downloading result.")
-        return
-
-    # ------------------------------------------------------------
-    # 9) Удаляем сообщение «создаю»
-    # ------------------------------------------------------------
-    try:
-        await status_msg.delete()
-    except:
-        pass
-
-    # ------------------------------------------------------------
-    # 10) Делаем красивый watermark
-    # ------------------------------------------------------------
-    wm = {
-        "ua": "\n\n🔖 Зроблено в Magl’sBot (OmniHuman)",
-        "en": "\n\n🔖 Made with Magl’sBot (OmniHuman)",
-        "es": "\n\n🔖 Hecho con Magl’sBot (OmniHuman)",
-        "pt": "\n\n🔖 Feito com Magl’sBot (OmniHuman)"
-    }.get(lang)
-
-    # ------------------------------------------------------------
-    # 11) Отправляем финальное видео пользователю
-    # ------------------------------------------------------------
     await bot.send_video(
-        chat_id=uid,
+        chat_id=query.message.chat.id,
         video=FSInputFile(tmp_path),
-        caption=tr(uid, "done") + wm,
-        reply_markup=buy_cta_keyboard(uid)
+        caption=tr(uid, "done") + watermark_suffix,
+        reply_markup=buy_cta_keyboard(uid),
     )
 
-    # ------------------------------------------------------------
-    # 12) Списание Stars (если не адм. в TEST_MODE)
-    # ------------------------------------------------------------
-    if not (TEST_MODE and is_admin):
-        ok, new_balance = await consume_user_credit(uid, OMNI_PRICE)
-        if not ok:
-            logger.warning(f"User {uid} did not have enough credits for Omni at deduction stage.")
+    ref_text = referral_info_text(lang)
+    await bot.send_message(
+        chat_id=query.message.chat.id,
+        text=ref_text,
+    )
 
-    # ------------------------------------------------------------
-    # 13) Чистим временный файл
-    # ------------------------------------------------------------
+    # 💾 после УСПЕШНОЙ генерации:
+    # либо отмечаем бесплатку, либо списываем кредит
+    if not (TEST_MODE and is_admin):
+        free_used = await has_used_free(uid)
+
+        if not free_used:
+            # это была первая (бесплатная) анимация
+            await mark_free_used(uid)
+        else:
+            # бесплатка уже была — списываем 1 кредит через helpers_credits
+            ok, new_balance = await consume_user_credit(uid, 1)
+            if not ok:
+                logger.warning("User %s has no credits at confirm stage", uid)
+
     try:
         os.remove(tmp_path)
-    except:
+    except Exception:
         pass
 
-    # ------------------------------------------------------------
-    # 14) Чистим сохранённое фото для Omni
-    # ------------------------------------------------------------
-    omni_pending_photo.pop(uid, None)
+    pending_photo.pop(uid, None)
+    pending_choice.pop(uid, None)
+
+# ---------- MAIN ----------
+
+async def main_async():
+    # 1️⃣ Подключаемся к базе
+    await init_db()
+
+    # 2️⃣ Запускаем фоновый воркер (если используешь)
+    asyncio.create_task(referral_reminder_worker())
+
+    # 3️⃣ Запускаем бота
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # 4️⃣ Закрываем соединение с БД
+        await close_db()
+
+
+def main():
+    asyncio.run(main_async())
+
+
+if __name__ == "__main__":
+    main()
