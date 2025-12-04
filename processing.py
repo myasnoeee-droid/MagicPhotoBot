@@ -5,7 +5,6 @@ import logging
 from typing import Optional, Dict, Any
 
 import requests
-import aiohttp  # используем для неблокирующих запросов к Replicate
 
 logger = logging.getLogger("processing")
 
