@@ -1,26 +1,25 @@
 {
-  "welcome": "🪄 Send me a photo and I will animate it magically ✨",
-  "choose_language": "🧙‍♂️ <b>Magl’sBot welcomes you, magic traveler!</b>\n\n✨ Choose your language:",
-  "lang_set": "✅ Language selected! Now send me a photo and I’ll animate it.",
-  "invite_only": "This bot is currently invite-only. Contact the admin to get access.",
+  "welcome": "🪄 Send me a photo — and I’ll turn it into a living, magical portrait in just a moment ✨",
+  "choose_language": "🧙‍♂️ <b>Magl’sBot welcomes you, traveler of magic!</b>\n\n✨ Choose your language and let’s bring your photos to life.",
+  "lang_set": "✅ Language selected! Now send me a photo and I’ll animate it in a cinematic, magical style.",
+  "invite_only": "This bot is currently invite-only. Contact the admin to get your access to the world of living photos.",
 
   "menu_animate": "🪄 Animate photo",
-  "menu_buy": "💫 Top up ⭐",
+  "menu_buy": "💫 Buy generations",
   "menu_balance": "💰 Balance",
   "menu_support": "🆘 Support",
   "menu_share": "📤 Tell friends",
   "menu_omni": "🧠 Talking head (Omni)",
 
-  "pricing": "💫 <b>Magl’sBot pricing</b>\n\n🆓 1 free animation — try it out.\n\n✨ <b>Paid packages:</b>\n• <b>60 ⭐</b> — 1 animation\n• <b>150 ⭐</b> — 3 animations ⭐ Popular\n• <b>300 ⭐</b> — 5 animations\n• <b>500 ⭐</b> — 10 animations\n\n🧠 <b>Talking head (OmniHuman)</b>\n• <b>400 ⭐</b> per video.\n\n⚡ Instant payment. Stars are added automatically.",
+  "pricing": "💫 <b>Magl’sBot pricing</b>\n\n🆓 <b>1 free animation</b> — test the magic on your own photo.\n\n✨ <b>Paid packages:</b>\n\n• <b>1 animation — 60 ⭐</b>\nPerfect to try even old, low-quality or scanned photos.\n\n• <b>3 animations — 150 ⭐</b> ⭐ <i>Most popular</i>\nGreat to animate yourself, your partner and a special memory.\n\n• <b>5 animations — 300 ⭐</b>\nIdeal for family albums, travel memories and emotional gifts.\n\n• <b>10 animations — 500 ⭐</b>\nMaximum value: plenty of magical content for stories, reels and social media.\n\n🧠 <b>Talking head (OmniHuman)</b>\n• <b>400 ⭐</b> per video (photo + audio) — make your photo literally speak.\n\n⚡ Payments are instant, your credits are added automatically and the magic starts right away.",
 
-  "buy_title": "💫 Choose your magic package:",
-  "balance_title": "💰 Your balance: <b>{credits}</b> ⭐ (≈ {anims} animations)",
-  "free_used": "🆓 You've already used your free animation. Choose a ⭐ package to continue.",
+  "buy_title": "💫 Choose your magic package and let’s bring more photos to life:",
+  "balance_title": "💰 Your balance: <b>{credits}</b> animations. Use them to turn your favorite moments into living stories.",
+  "free_used": "🆓 You’ve already used your free animation.\nTo continue the magic — choose a ⭐ package and animate more moments.",
 
-  "status_work": "⚙️ Processing your photo… this may take 20–60 seconds ✨",
-  "done": "✨ Done! If you like it — choose a package below or send another photo.",
-
-  "paid_ok": "✅ Payment successful!\nYou received: <b>{credits}</b> ⭐.\nCurrent balance: <b>{balance}</b> ⭐.",
+  "status_work": "⚙️ Working on your photo… this usually takes 20–60 seconds.\n⏳ Please wait — I’m casting some animation magic ✨",
+  "done": "✨ Done! Your photo is now alive.\nSave it, share it with friends — and send another one if you want more magic.",
+  "paid_ok": "✅ Payment successful!\nYou received: <b>{credits}</b> animations.\nCurrent balance: <b>{balance}</b>.\n\nReady for the next magic portrait? 🪄",
 
   "buy_btn_1": "1 animation — 60 ⭐",
   "buy_btn_3": "3 animations — 150 ⭐ (most popular)",
@@ -28,22 +27,22 @@
   "buy_btn_10": "10 animations — 500 ⭐",
   "buy_btn_25": "25 animations — 1000 ⭐",
 
-  "send_support": "🆘 Write your question in one message — I’ll pass it to the human support wizard.",
-  "support_sent": "📝 Thanks! I've sent your message to support. They will reply as soon as possible.",
+  "send_support": "🆘 Got a question or something doesn’t look right? Write it in one message and I’ll pass it to the human support wizard.",
+  "support_sent": "📝 Thank you! I’ve sent your message to support. They’ll reply as soon as they finish their current spells.",
 
-  "choose_preset": "🎨 Choose a magic preset:",
-  "btn_use_caption": "👉 Use caption as prompt",
+  "choose_preset": "🎨 Choose a magic preset to decide how exactly your photo will come to life:",
+  "btn_use_caption": "👉 Use caption as a magic prompt",
   "btn_cancel": "❌ Cancel",
 
   "preset_desc": {
-    "1": "Natural soft smile with realistic facial motion.",
-    "2": "Cinematic portrait with dramatic lighting.",
-    "3": "Smooth dreamy motion with warm atmosphere.",
-    "4": "Emotional expression with natural movement.",
-    "5": "Soft blink, gentle smile and cinematic lighting.",
-    "6": "Playful natural wink with expressive eyes.",
-    "7": "35mm film look with vintage tones.",
-    "8": "Dramatic lighting with deep shadows.",
-    "9": "Editorial-style portrait with soft studio light."
+    "1": "Natural soft smile with smooth, realistic motion — perfect for friendly portraits.",
+    "2": "Cinematic portrait with deep lighting and subtle breathing, like a movie close-up.",
+    "3": "Dreamy, gentle movement with a warm, nostalgic atmosphere.",
+    "4": "Expressive emotional look with natural facial motion and focus on the eyes.",
+    "5": "Soft blink, gentle smile and elegant cinematic lighting.",
+    "6": "Playful, natural wink with lively, expressive eyes.",
+    "7": "Vintage 35mm film style with warm tones and a subtle analog feel.",
+    "8": "Dramatic lighting with strong contrast and a bold, cinematic mood.",
+    "9": "Editorial-style portrait with soft studio light and confident, elegant motion."
   }
 }
