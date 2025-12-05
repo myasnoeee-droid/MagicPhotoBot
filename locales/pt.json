@@ -1,22 +1,26 @@
 {
-  "welcome": "🪄 Envie uma foto e eu vou animá-la magicamente ✨",
-  "choose_language": "🧙‍♂️ <b>Magl’sBot te dá as boas-vindas, viajante mágico!</b>\\n\\n✨ Escolha seu idioma:",
-  "lang_set": "✅ Idioma selecionado! Agora envie uma foto e eu vou animá-la.",
-  "invite_only": "Este bot está disponível apenas por convite. Fale com o administrador para obter acesso.",
+  "welcome": "🪄 Envie uma foto e eu a animarei magicamente ✨",
+  "choose_language": "🧙‍♂️ <b>Magl’sBot te dá as boas-vindas, viajante mágico!</b>\n\n✨ Escolha seu idioma:",
+  "lang_set": "✅ Idioma selecionado! Agora envie uma foto e eu a animarei.",
+  "invite_only": "Este bot está disponível apenas por convite. Contate o administrador para obter acesso.",
+
   "menu_animate": "🪄 Animar foto",
-  "menu_buy": "💫 Comprar gerações",
+  "menu_buy": "💫 Recarregar ⭐",
   "menu_balance": "💰 Saldo",
   "menu_support": "🆘 Suporte",
   "menu_share": "📤 Compartilhar",
   "menu_omni": "🧠 Cabeça falante (Omni)",
 
-  "pricing": "💫 <b>Planos do Magl’sBot</b>\n\n🆓 1 animação gratuita — experimente.\n\n✨ <b>Pacotes pagos:</b>\n\n• <b>1 animação — 60 ⭐</b>\nPerfeito para testar até fotos antigas.\n\n• <b>3 animações — 150 ⭐</b> ⭐ Popular\nMelhor custo-benefício.\n\n• <b>5 animações — 300 ⭐</b>\nPara arquivos e coleções de família.\n\n• <b>10 animações — 500 ⭐</b>\nMaior vantagem: apenas 50⭐ por foto.\n\n🧠 <b>Cabeça falante (OmniHuman)</b>\n• <b>400 ⭐</b> por vídeo (foto + áudio).\n\n⚡ Pagamento instantâneo. Os créditos são adicionados automaticamente.",
-  "buy_title": "💫 Escolha um pacote mágico de animações:",
-  "balance_title": "💰 Seu saldo: <b>{credits}</b> animações.",
-  "free_used": "🆓 Você já usou sua animação grátis. Escolha um pacote ⭐ para continuar.",
-  "status_work": "⚙️ Processando a foto… isso pode levar de 20 a 60 segundos ✨",
+  "pricing": "💫 <b>Planos do Magl’sBot</b>\n\n🆓 1 animação gratuita.\n\n✨ <b>Pacotes pagos:</b>\n• <b>60 ⭐</b> — 1 animação\n• <b>150 ⭐</b> — 3 animações ⭐ Popular\n• <b>300 ⭐</b> — 5 animações\n• <b>500 ⭐</b> — 10 animações\n\n🧠 <b>Cabeça falante (OmniHuman)</b>\n• <b>400 ⭐</b> por vídeo.\n\n⚡ Pagamento instantâneo. As Stars são adicionadas automaticamente.",
+
+  "buy_title": "💫 Escolha um pacote mágico:",
+  "balance_title": "💰 Seu saldo: <b>{credits}</b> ⭐ (≈ {anims} animações)",
+  "free_used": "🆓 Você já usou sua animação gratuita. Recarregue ⭐ para continuar.",
+
+  "status_work": "⚙️ Processando a foto… isso pode levar 20–60 segundos ✨",
   "done": "✨ Pronto! Se gostou, escolha um pacote abaixo ou envie outra foto.",
-  "paid_ok": "✅ Pagamento efetuado!\\nVocê recebeu: <b>{credits}</b> animações.\\nSaldo atual: <b>{balance}</b>.",
+
+  "paid_ok": "✅ Pagamento realizado!\nVocê recebeu <b>{credits}</b> ⭐.\nSaldo atual: <b>{balance}</b> ⭐.",
 
   "buy_btn_1": "1 animação — 60 ⭐",
   "buy_btn_3": "3 animações — 150 ⭐ (mais popular)",
@@ -24,22 +28,22 @@
   "buy_btn_10": "10 animações — 500 ⭐",
   "buy_btn_25": "25 animações — 1000 ⭐",
 
-  "send_support": "🆘 Escreva sua dúvida ou problema em uma única mensagem — vou enviar para o mago humano de suporte.",
-  "support_sent": "📝 Obrigado! Enviei sua mensagem para o suporte. Eles vão responder assim que possível.",
+  "send_support": "🆘 Escreva sua dúvida em uma única mensagem — vou enviar para o mago humano de suporte.",
+  "support_sent": "📝 Obrigado! Enviei sua mensagem ao suporte. Eles responderão assim que possível.",
 
   "choose_preset": "🎨 Escolha um preset mágico:",
   "btn_use_caption": "👉 Usar descrição como prompt",
   "btn_cancel": "❌ Cancelar",
 
   "preset_desc": {
-    "1": "Sorriso suave natural com movimento facial realista.",
+    "1": "Sorriso natural suave com movimento facial realista.",
     "2": "Retrato cinematográfico com iluminação dramática.",
-    "3": "Movimento suave com atmosfera quente.",
+    "3": "Movimento suave e atmosférico.",
     "4": "Expressão emocional com luz quente.",
     "5": "Piscada suave e sorriso leve com iluminação cinematográfica.",
     "6": "Piscadinha natural e expressiva.",
     "7": "Estilo filme 35mm vintage.",
-    "8": "Iluminação dramática com forte contraste.",
+    "8": "Iluminação dramática com sombras profundas.",
     "9": "Retrato editorial elegante com luz suave."
   }
 }
