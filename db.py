@@ -64,6 +64,15 @@ async def init_db():
                 user_id BIGINT NOT NULL,
                 last_push_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+
+            -- Индексы
+            CREATE INDEX IF NOT EXISTS idx_users_tg_id ON users(tg_id);
+            CREATE INDEX IF NOT EXISTS idx_credits_user_id ON credits(user_id);
+            CREATE INDEX IF NOT EXISTS idx_usage_stats_user_id ON usage_stats(user_id);
+            CREATE INDEX IF NOT EXISTS idx_ref_stars_user_id ON ref_stars(user_id);
+            CREATE INDEX IF NOT EXISTS idx_ref_pushes_user_id ON ref_pushes(user_id);
+            CREATE INDEX IF NOT EXISTS idx_referrals_invited_id ON referrals(invited_id);
+            CREATE INDEX IF NOT EXISTS idx_referrals_inviter_id ON referrals(inviter_id);
             """
         )
 
