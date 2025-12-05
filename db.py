@@ -2,6 +2,7 @@ import os
 import asyncpg
 from typing import Tuple
 from dotenv import load_dotenv
+from asyncpg.exceptions import UniqueViolationError
 
 load_dotenv()
 
@@ -116,7 +117,7 @@ async def register_referral(inviter_id: int, invited_id: int) -> bool:
                 invited_id,
             )
             return True
-        except asyncpg.UniqueViolationError:
+        except UniqueViolationError:
             return False
 
 
