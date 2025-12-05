@@ -227,7 +227,7 @@ async def add_ref_stars(tg_id: int, delta: int) -> Tuple[int, int]:
                 acc, bal = int(row["stars_accumulated"]), int(row["stars_balance"])
 
             new_acc = acc + delta if delta >= 0 else acc
-            new_bal = bal + delta
+            new_bal = max(0, bal + delta)
 
             await conn.execute(
                 "UPDATE ref_stars SET stars_accumulated=$2, stars_balance=$3 WHERE user_id=$1",
@@ -237,3 +237,43 @@ async def add_ref_stars(tg_id: int, delta: int) -> Tuple[int, int]:
             )
 
             return new_acc, new_bal
+
+async def get_referral_count(inviter_id: int) -> int:
+    """
+    Сколько людей приглашено этим пользователем.
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) AS c FROM referrals WHERE inviter_id=$1",
+            inviter_id,
+        )
+        return int(row["c"]) if row else 0
+
+
+async def get_invited_users(inviter_id: int) -> list[int]:
+    """
+    Список invited_id, которых пригласил данный пользователь.
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT invited_id FROM referrals WHERE inviter_id=$1",
+            inviter_id,
+        )
+        return [int(r["invited_id"]) for r in rows]
+
+
+async def get_referrer(invited_id: int) -> int | None:
+    """
+    Кто пригласил этого пользователя (inviter_id) или None.
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT inviter_id FROM referrals WHERE invited_id=$1",
+            invited_id,
+        )
+        if row:
+            return int(row["inviter_id"])
+        return None
