@@ -1,22 +1,26 @@
 {
   "welcome": "🪄 Send me a photo and I will animate it magically ✨",
-  "choose_language": "🧙‍♂️ <b>Magl’sBot welcomes you, magic traveler!</b>\\n\\n✨ Choose your language:",
+  "choose_language": "🧙‍♂️ <b>Magl’sBot welcomes you, magic traveler!</b>\n\n✨ Choose your language:",
   "lang_set": "✅ Language selected! Now send me a photo and I’ll animate it.",
-  "invite_only": "This bot is currently invite-only. Please contact the admin to get access.",
+  "invite_only": "This bot is currently invite-only. Contact the admin to get access.",
+
   "menu_animate": "🪄 Animate photo",
-  "menu_buy": "💫 Buy generations",
+  "menu_buy": "💫 Top up ⭐",
   "menu_balance": "💰 Balance",
   "menu_support": "🆘 Support",
   "menu_share": "📤 Tell friends",
   "menu_omni": "🧠 Talking head (Omni)",
 
-  "pricing": "💫 <b>Magl’sBot pricing</b>\n\n🆓 1 free animation — try it out.\n\n✨ <b>Paid packages:</b>\n\n• <b>1 animation — 60 ⭐</b>\nPerfect for testing even old photos.\n\n• <b>3 animations — 150 ⭐</b> ⭐ Popular\nBest price-to-quality ratio.\n\n• <b>5 animations — 300 ⭐</b>\nFor family archives and collections.\n\n• <b>10 animations — 500 ⭐</b>\nMaximum value: only 50⭐ per photo.\n\n🧠 <b>Talking head (OmniHuman)</b>\n• <b>400 ⭐</b> per video (photo + audio).\n\n⚡ Instant payment. Credits are added automatically.",
-  "buy_title": "💫 Choose your magic animation package:",
-  "balance_title": "💰 Your balance: <b>{credits}</b> animations.",
-  "free_used": "🆓 You’ve already used your free animation. Choose a ⭐ package to continue.",
+  "pricing": "💫 <b>Magl’sBot pricing</b>\n\n🆓 1 free animation — try it out.\n\n✨ <b>Paid packages:</b>\n• <b>60 ⭐</b> — 1 animation\n• <b>150 ⭐</b> — 3 animations ⭐ Popular\n• <b>300 ⭐</b> — 5 animations\n• <b>500 ⭐</b> — 10 animations\n\n🧠 <b>Talking head (OmniHuman)</b>\n• <b>400 ⭐</b> per video.\n\n⚡ Instant payment. Stars are added automatically.",
+
+  "buy_title": "💫 Choose your magic package:",
+  "balance_title": "💰 Your balance: <b>{credits}</b> ⭐ (≈ {anims} animations)",
+  "free_used": "🆓 You've already used your free animation. Choose a ⭐ package to continue.",
+
   "status_work": "⚙️ Processing your photo… this may take 20–60 seconds ✨",
   "done": "✨ Done! If you like it — choose a package below or send another photo.",
-  "paid_ok": "✅ Payment successful!\\nYou received: <b>{credits}</b> animations.\\nCurrent balance: <b>{balance}</b>.",
+
+  "paid_ok": "✅ Payment successful!\nYou received: <b>{credits}</b> ⭐.\nCurrent balance: <b>{balance}</b> ⭐.",
 
   "buy_btn_1": "1 animation — 60 ⭐",
   "buy_btn_3": "3 animations — 150 ⭐ (most popular)",
@@ -24,22 +28,22 @@
   "buy_btn_10": "10 animations — 500 ⭐",
   "buy_btn_25": "25 animations — 1000 ⭐",
 
-  "send_support": "🆘 Please write your question or issue in one message — I’ll send it to the human support wizard.",
-  "support_sent": "📝 Thanks! I’ve sent your message to support. They will reply as soon as possible.",
+  "send_support": "🆘 Write your question in one message — I’ll pass it to the human support wizard.",
+  "support_sent": "📝 Thanks! I've sent your message to support. They will reply as soon as possible.",
 
   "choose_preset": "🎨 Choose a magic preset:",
   "btn_use_caption": "👉 Use caption as prompt",
   "btn_cancel": "❌ Cancel",
 
   "preset_desc": {
-    "1": "Natural soft smile with smooth, realistic facial motion.",
-    "2": "Cinematic portrait with dramatic lighting and subtle breathing.",
-    "3": "Dreamy smooth motion with a soft, warm atmosphere.",
-    "4": "Expressive emotional look with natural face movement.",
+    "1": "Natural soft smile with realistic facial motion.",
+    "2": "Cinematic portrait with dramatic lighting.",
+    "3": "Smooth dreamy motion with warm atmosphere.",
+    "4": "Emotional expression with natural movement.",
     "5": "Soft blink, gentle smile and cinematic lighting.",
-    "6": "Playful, natural wink with expressive eyes.",
-    "7": "Vintage 35mm film look with warm tones and soft texture.",
-    "8": "Dramatic lighting with strong contrast and cinematic mood.",
-    "9": "Editorial-style portrait with soft studio lighting and elegant movement."
+    "6": "Playful natural wink with expressive eyes.",
+    "7": "35mm film look with vintage tones.",
+    "8": "Dramatic lighting with deep shadows.",
+    "9": "Editorial-style portrait with soft studio light."
   }
 }
