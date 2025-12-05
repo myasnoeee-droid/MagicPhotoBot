@@ -1,22 +1,26 @@
 {
   "welcome": "🪄 Envíame una foto y la animaré mágicamente ✨",
-  "choose_language": "🧙‍♂️ <b>Magl’sBot te da la bienvenida, viajero mágico!</b>\\n\\n✨ Elige tu idioma:",
+  "choose_language": "🧙‍♂️ <b>¡Magl’sBot te da la bienvenida, viajero mágico!</b>\n\n✨ Elige tu idioma:",
   "lang_set": "✅ Idioma seleccionado. Ahora envíame una foto y la animaré.",
-  "invite_only": "Este bot funciona solo con invitación. Contacta con el administrador para obtener acceso.",
+  "invite_only": "Este bot funciona solo con invitación. Contacta al administrador para obtener acceso.",
+
   "menu_animate": "🪄 Animar foto",
-  "menu_buy": "💫 Comprar generaciones",
+  "menu_buy": "💫 Recargar ⭐",
   "menu_balance": "💰 Balance",
   "menu_support": "🆘 Soporte",
   "menu_share": "📤 Compartir",
   "menu_omni": "🧠 Cabeza parlante (Omni)",
 
-  "pricing": "💫 <b>Tarifas de Magl’sBot</b>\n\n🆓 1 animación gratis — para probar.\n\n✨ <b>Paquetes de pago:</b>\n\n• <b>1 animación — 60 ⭐</b>\nPerfecto para probar incluso fotos antiguas.\n\n• <b>3 animaciones — 150 ⭐</b> ⭐ Popular\nLa mejor relación calidad-precio.\n\n• <b>5 animaciones — 300 ⭐</b>\nPara archivos familiares y colecciones.\n\n• <b>10 animaciones — 500 ⭐</b>\nMáximo valor: solo 50⭐ por foto.\n\n🧠 <b>Cabeza parlante (OmniHuman)</b>\n• <b>400 ⭐</b> por vídeo (foto + audio).\n\n⚡ Pago instantáneo. Los créditos se añaden automáticamente.",
-  "buy_title": "💫 Elige un paquete de animaciones mágicas:",
-  "balance_title": "💰 Tu balance: <b>{credits}</b> animaciones.",
-  "free_used": "🆓 Ya has usado tu animación gratuita. Elige un paquete ⭐ para continuar.",
+  "pricing": "💫 <b>Tarifas de Magl’sBot</b>\n\n🆓 1 animación gratis.\n\n✨ <b>Paquetes de pago:</b>\n• <b>60 ⭐</b> — 1 animación\n• <b>150 ⭐</b> — 3 animaciones ⭐ Popular\n• <b>300 ⭐</b> — 5 animaciones\n• <b>500 ⭐</b> — 10 animaciones\n\n🧠 <b>Cabeza parlante (OmniHuman)</b>\n• <b>400 ⭐</b> por vídeo.\n\n⚡ Pago instantáneo. Las Stars se añaden automáticamente.",
+
+  "buy_title": "💫 Elige un paquete mágico:",
+  "balance_title": "💰 Tu balance: <b>{credits}</b> ⭐ (≈ {anims} animaciones)",
+  "free_used": "🆓 Ya has usado tu animación gratuita. Recarga ⭐ para continuar.",
+
   "status_work": "⚙️ Procesando tu foto… puede tardar 20–60 segundos ✨",
   "done": "✨ ¡Listo! Si te ha gustado, elige un paquete abajo o envía otra foto.",
-  "paid_ok": "✅ ¡Pago completado!\\nHas recibido: <b>{credits}</b> animaciones.\\nBalance actual: <b>{balance}</b>.",
+
+  "paid_ok": "✅ ¡Pago exitoso!\nHas recibido: <b>{credits}</b> ⭐.\nBalance actual: <b>{balance}</b> ⭐.",
 
   "buy_btn_1": "1 animación — 60 ⭐",
   "buy_btn_3": "3 animaciones — 150 ⭐ (la más popular)",
@@ -24,22 +28,22 @@
   "buy_btn_10": "10 animaciones — 500 ⭐",
   "buy_btn_25": "25 animaciones — 1000 ⭐",
 
-  "send_support": "🆘 Escribe tu pregunta o problema en un solo mensaje — lo enviaré al mago de soporte humano.",
-  "support_sent": "📝 ¡Gracias! He enviado tu mensaje al soporte. Te responderán lo antes posible.",
+  "send_support": "🆘 Escribe tu pregunta en un solo mensaje — la enviaré al mago de soporte.",
+  "support_sent": "📝 ¡Gracias! Ya envié tu mensaje al soporte.",
 
   "choose_preset": "🎨 Elige un preset mágico:",
   "btn_use_caption": "👉 Usar descripción como prompt",
   "btn_cancel": "❌ Cancelar",
 
   "preset_desc": {
-    "1": "Sonrisa natural suave con movimiento facial realista.",
-    "2": "Retrato cinematográfico con iluminación dramática.",
+    "1": "Sonrisa natural con movimiento facial realista.",
+    "2": "Retrato cinematográfico con luz dramática.",
     "3": "Movimiento suave y atmosférico.",
     "4": "Expresión emocional con luz cálida.",
     "5": "Parpadeo suave y sonrisa natural.",
-    "6": "Guiño expresivo y realista.",
+    "6": "Guiño natural y expresivo.",
     "7": "Estilo película 35mm retro.",
-    "8": "Iluminación dramática estilo cine.",
+    "8": "Iluminación dramática de estilo cine.",
     "9": "Retrato editorial elegante con luz suave."
   }
 }
