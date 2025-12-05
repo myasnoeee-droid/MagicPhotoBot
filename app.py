@@ -312,6 +312,8 @@ PRESET_TITLES: Dict[str, list[str]] = {
 
 known_users: set[int] = set()
 last_ref_push: Dict[int, float] = {}  # user_id -> last push ts
+pending_photo: Dict[int, Dict[str, Any]] = {}
+pending_choice: Dict[int, Dict[str, Any]] = {}
 
 
 def register_user(uid: int):
