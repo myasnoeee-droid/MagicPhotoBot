@@ -1826,11 +1826,11 @@ async def on_photo(message: Message):
         free_used = await has_used_free(uid)
 
         if free_used:
-            # бесплатка уже была → смотрим баланс кредитов
+            # бесплатка уже была → смотрим баланс Stars в БД
             credits_balance = await get_user_credits(uid)
 
-            if credits_balance <= 0:
-                # ❌ ни бесплатки, ни кредитов — дальше не пускаем
+            # нужно хотя бы 1 полная анимация = ANIMATION_PRICE Stars
+            if credits_balance < ANIMATION_PRICE:
                 await message.answer(tr(uid, "free_used"))
                 return
         # если free_used == False → бесплатка ещё не использована, пропускаем дальше без проверок
