@@ -544,26 +544,22 @@ def build_admin_summary() -> str:
 def referral_info_text(lang: str) -> str:
     ua = (
         "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
-        "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
-        "Отримуй 5% Stars від усіх поповнень друзів.\n\n"
+        "Отримуй <b>5% Stars</b> від усіх поповнень друзів.\n\n"
         "Поділись ботом через кнопку «Розповісти друзям» в меню — і нехай магія розлітається світом 🪄"
     )
     en = (
         "✨ <b>Magl’sBot referral magic</b>\n\n"
-        "Invite 3 friends — get 1 free animation.\n"
-        "Earn 5% Stars from all your friends’ top-ups.\n\n"
+        "Earn <b>5% Stars</b> from all your friends’ top-ups.\n\n"
         "Share the bot via the “Tell friends” button and let the magic spread 🪄"
     )
     es = (
         "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
-        "Invita a 3 amigos — recibe 1 animación gratis.\n"
-        "Gana 5% en Stars de todas las recargas de tus amigos.\n\n"
+        "Gana un <b>5% de Stars</b> de todas las recargas de tus amigos.\n\n"
         "Comparte el bot con el botón “Compartir” y deja que la magia se expanda 🪄"
     )
     pt = (
         "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
-        "Convide 3 amigos — ganhe 1 animação grátis.\n"
-        "Ganhe 5% em Stars de todas as recargas dos seus amigos.\n\n"
+        "Ganhe <b>5% de Stars</b> de todas as recargas dos seus amigos.\n\n"
         "Compartilhe o bot pelo botão “Compartilhar” e deixe a magia se espalhar 🪄"
     )
     mapping = {
@@ -576,38 +572,31 @@ def referral_info_text(lang: str) -> str:
 
 
 def get_ref_main_text(lang: str) -> str:
-    """
-    Экран при входе в реферальный раздел (/ref)
-    """
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
 
     if lang == "ua":
         return (
             "✨ <b>Реферальна магія Magl’sBot</b>\n\n"
-            "Запроси 3 друзів — отримай 1 безкоштовне оживлення.\n"
-            "Отримуй 5% Stars від усіх поповнень друзів.\n\n"
+            "Отримуй <b>5% Stars</b> від усіх поповнень друзів.\n\n"
             "Поділись ботом через кнопку нижче — і нехай магія розлітається світом 🪄"
         )
     if lang == "en":
         return (
             "✨ <b>Magl’sBot referral magic</b>\n\n"
-            "Invite 3 friends — get 1 free animation.\n"
-            "Earn 5% Stars from all your friends’ top-ups.\n\n"
+            "Earn <b>5% Stars</b> from all your friends’ top-ups.\n\n"
             "Use the buttons below to share your link and track your stats 🪄"
         )
     if lang == "es":
         return (
             "✨ <b>Magia de referidos de Magl’sBot</b>\n\n"
-            "Invita a 3 amigos — recibe 1 animación gratis.\n"
-            "Gana 5% en Stars de todas las recargas de tus amigos.\n\n"
+            "Gana un <b>5% de Stars</b> de todas las recargas de tus amigos.\n\n"
             "Usa los botones de abajo para compartir tu enlace y ver tus estadísticas 🪄"
         )
     if lang == "pt":
         return (
             "✨ <b>Magia de indicação do Magl’sBot</b>\n\n"
-            "Convide 3 amigos — ganhe 1 animação grátis.\n"
-            "Ganhe 5% em Stars de todas as recargas dos seus amigos.\n\n"
+            "Ganhe <b>5% de Stars</b> de todas as recargas dos seus amigos.\n\n"
             "Use os botões abaixo para compartilhar seu link e ver suas estatísticas 🪄"
         )
     return ""
@@ -616,10 +605,10 @@ def get_ref_main_text(lang: str) -> str:
 async def build_referral_stats_text(uid: int) -> str:
     lang = get_lang(uid)
     invited = ref_count.get(uid, 0)
-    free_from_invites = invited // 3
     pending_stars = ref_stars_balance.get(uid, 0)
 
-    credits = await get_user_credits(uid)  # 👈 из Postgres
+    credits = await get_user_credits(uid)  # ⭐ из Postgres
+    approx_anims = credits // ANIMATION_PRICE if ANIMATION_PRICE > 0 else 0
 
     if lang not in ("ua", "en", "es", "pt"):
         lang = "en"
@@ -629,9 +618,8 @@ async def build_referral_stats_text(uid: int) -> str:
             "📊 <b>Твоя реферальна статистика</b>",
             "",
             f"👥 Запрошено друзів: <b>{invited}</b>",
-            f"🎁 Безкоштовних оживлень за друзів (накопичено всього): <b>{free_from_invites}</b>",
             f"⭐ Накопичено реферальних Stars (ще не конвертовано): <b>{pending_stars}</b>",
-            f"💰 Поточний баланс оживлень: <b>{credits}</b>",
+            f"💰 Поточний баланс: <b>{credits}</b> ⭐ (≈ {approx_anims} оживлень)",
         ]
         return "\n".join(lines)
 
@@ -640,9 +628,8 @@ async def build_referral_stats_text(uid: int) -> str:
             "📊 <b>Your referral stats</b>",
             "",
             f"👥 Friends invited: <b>{invited}</b>",
-            f"🎁 Free animations from invites (total accrued): <b>{free_from_invites}</b>",
             f"⭐ Referral Stars accumulated (not yet converted): <b>{pending_stars}</b>",
-            f"💰 Current animation balance: <b>{credits}</b>",
+            f"💰 Current balance: <b>{credits}</b> ⭐ (≈ {approx_anims} animations)",
         ]
         return "\n".join(lines)
 
@@ -651,9 +638,8 @@ async def build_referral_stats_text(uid: int) -> str:
             "📊 <b>Tus estadísticas de referidos</b>",
             "",
             f"👥 Amigos invitados: <b>{invited}</b>",
-            f"🎁 Animaciones gratis por referidos (acumuladas): <b>{free_from_invites}</b>",
             f"⭐ Stars de referidos acumuladas (sin convertir): <b>{pending_stars}</b>",
-            f"💰 Balance actual de animaciones: <b>{credits}</b>",
+            f"💰 Balance actual: <b>{credits}</b> ⭐ (≈ {approx_anims} animaciones)",
         ]
         return "\n".join(lines)
 
@@ -662,9 +648,8 @@ async def build_referral_stats_text(uid: int) -> str:
             "📊 <b>Suas estatísticas de indicação</b>",
             "",
             f"👥 Amigos indicados: <b>{invited}</b>",
-            f"🎁 Animações grátis por indicações (acumuladas): <b>{free_from_invites}</b>",
             f"⭐ Stars de indicação acumuladas (ainda não convertidas): <b>{pending_stars}</b>",
-            f"💰 Saldo atual de animações: <b>{credits}</b>",
+            f"💰 Saldo atual: <b>{credits}</b> ⭐ (≈ {approx_anims} animações)",
         ]
         return "\n".join(lines)
 
@@ -887,20 +872,20 @@ def get_ref_push_text(lang: str, variant: int) -> str:
 
     texts = {
         "ua": {
-            1: "✨ У тебе ще є шанс отримати безкоштовне оживлення.\nЗапроси 3 друзів — і магія зробить це за тебе 🪄",
-            2: "🔥 Магічний бонус чекає!\nЗапроси ще 1 друга — і відкриється нове безкоштовне оживлення.",
+            1: "✨ Запроси друзів у Magl’sBot — і отримуй <b>5% Stars</b> з усіх їх поповнень.",
+            2: "🔥 Чим більше друзів користуються Magl’sBot, тим більше <b>5% бонусів</b> ти збираєш з їх поповнень ✨",
         },
         "en": {
-            1: "✨ You still have a chance to get a free animation.\nInvite 3 friends and let the magic do the rest 🪄",
-            2: "🔥 A magic bonus is waiting!\nInvite 1 more friend to unlock a new free animation.",
+            1: "✨ Invite your friends to Magl’sBot — earn <b>5% Stars</b> from all their top-ups.",
+            2: "🔥 The more friends use Magl’sBot, the more <b>5% bonuses</b> you collect from their Stars top-ups ✨",
         },
         "es": {
-            1: "✨ Aún tienes la oportunidad de conseguir una animación gratis.\nInvita a 3 amigos y deja que la magia haga el resto 🪄",
-            2: "🔥 ¡Un bono mágico te espera!\nInvita a 1 amigo más y se activará una nueva animación gratis.",
+            1: "✨ Invita a tus amigos a Magl’sBot — gana un <b>5% de Stars</b> de todas sus recargas.",
+            2: "🔥 Cuantos más amigos usen Magl’sBot, más <b>bonos del 5%</b> acumulas de sus recargas ✨",
         },
         "pt": {
-            1: "✨ Você ainda tem a chance de ganhar uma animação grátis.\nConvide 3 amigos e deixe a magia fazer o resto 🪄",
-            2: "🔥 Um bônus mágico está esperando!\nConvide mais 1 amigo para liberar uma nova animação grátis.",
+            1: "✨ Convide seus amigos para o Magl’sBot — ganhe <b>5% de Stars</b> de todas as recargas deles.",
+            2: "🔥 Quanto mais amigos usarem o Magl’sBot, mais <b>bônus de 5%</b> você acumula das recargas deles ✨",
         },
     }
     return texts.get(lang, {}).get(variant, "")
@@ -979,34 +964,42 @@ async def register_referral(new_user_id: int, inviter_id: int):
         # уже был такой реферал
         return
 
-    # дальше поддерживаем in-memory статистику
     ref_inviter[new_user_id] = inviter_id
     ref_count[inviter_id] = ref_count.get(inviter_id, 0) + 1
     count = ref_count[inviter_id]
 
-    earned_free = 1 if (count % 3 == 0) else 0
-    if earned_free:
-        # начисляем 1 бесплатную анимацию через БД
-        new_balance = await add_user_credits(inviter_id, earned_free, "referral_3_friends")
-    else:
-        new_balance = await get_user_credits(inviter_id)
-
+    # Просто уведомляем, что по рефке пришёл новый пользователь
     try:
         lang = get_lang(inviter_id)
-        msg_lines = [
-            "🧙‍♂️ Новий маг приєднався за твоїм посиланням!",
-            f"Ти вже запросив: <b>{count}</b> друзів.",
-        ]
-        if earned_free:
-            msg_lines.append(
-                f"За кожні 3 запрошених — +1 безкоштовне оживлення.\n"
-                f"🎁 Ти щойно отримав +1! Зараз у тебе {new_balance} кредитів."
-            )
-        else:
-            left = 3 - (count % 3)
-            msg_lines.append(
-                f"Ще <b>{left}</b> друзів — і ти отримаєш +1 безкоштовне оживлення ✨"
-            )
+        if lang == "ua":
+            msg_lines = [
+                "🧙‍♂️ Новий маг приєднався за твоїм посиланням!",
+                f"Ти вже запросив: <b>{count}</b> друзів.",
+                "",
+                "За всі їх поповнення Stars ти автоматично отримуєш <b>5%</b> бонусом ✨",
+            ]
+        elif lang == "es":
+            msg_lines = [
+                "🧙‍♂️ ¡Un nuevo mago ha llegado con tu enlace!",
+                f"Ya has invitado a <b>{count}</b> amigos.",
+                "",
+                "Por todas sus recargas de Stars recibes automáticamente un <b>5%</b> de bono ✨",
+            ]
+        elif lang == "pt":
+            msg_lines = [
+                "🧙‍♂️ Um novo mago chegou pelo seu link!",
+                f"Você já indicou <b>{count}</b> amigos.",
+                "",
+                "Em todas as recargas de Stars deles você ganha automaticamente <b>5%</b> de bônus ✨",
+            ]
+        else:  # en
+            msg_lines = [
+                "🧙‍♂️ A new mage joined using your link!",
+                f"You have already invited <b>{count}</b> friends.",
+                "",
+                "You automatically earn <b>5%</b> bonus from all their Stars top-ups ✨",
+            ]
+
         await bot.send_message(inviter_id, "\n".join(msg_lines))
     except Exception as e:
         logger.warning("Failed to notify inviter: %s", e)
