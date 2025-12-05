@@ -461,6 +461,14 @@ def get_menu_labels(lang: str) -> Dict[str, str]:
     return MENU_BUTTONS.get(lang, MENU_BUTTONS["en"])
 
 
+def detect_lang_by_button(text: str):
+    for code, labels in MENU_BUTTONS.items():
+        for v in labels.values():
+            if text == v:
+                return code
+    return None
+
+
 def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
@@ -1559,6 +1567,13 @@ async def on_text(message: Message):
     text = message.text or ""
     uid = message.from_user.id if message.from_user else 0
     register_user(uid)
+
+    # 🔥 FIX: авто-определение языка по кнопке
+    if uid not in user_lang:
+        guessed = detect_lang_by_button(text)
+        if guessed:
+            user_lang[uid] = guessed
+
     lang = get_lang(uid)
     labels = get_menu_labels(lang)
 
