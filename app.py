@@ -306,11 +306,6 @@ PRESET_TITLES: Dict[str, list[str]] = {
     ],
 }
 
-pending_photo: Dict[int, Dict[str, Any]] = {}
-pending_choice: Dict[int, Dict[str, Any]] = {}
-omni_pending_photo: Dict[int, str] = {}  # uid -> file_id фото для говорящей головы
-user_mode: Dict[int, str] = {}  # "animate" (по умолчанию) или "omni"
-
 # ---------- Пользователи и пуши ----------
 
 known_users: set[int] = set()
