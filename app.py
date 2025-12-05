@@ -55,7 +55,8 @@ SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # чат/канал д
 ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
-OMNI_PRICE = 400
+ANIMATION_PRICE = 60       # Stars per normal animation
+OMNI_PRICE = 400           # Stars per Omni video
 
 # Заставка — оживлённое видео Гарри Поттера
 INTRO_VIDEO_FILE_ID = os.getenv(
@@ -393,11 +394,11 @@ def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
 # ---------- Stars (XTR) тарифы и кредиты ----------
 
 PACKS = {
-    "pack_1": ("1 animation", 1, 60),
-    "pack_3": ("3 animations", 3, 150),
-    "pack_5": ("5 animations", 5, 300),
-    "pack_10": ("10 animations", 10, 500),
-    "pack_25": ("25 animations", 25, 1000),
+    "pack_1": ("1 animation", 1 * ANIMATION_PRICE, 60),
+    "pack_3": ("3 animations", 3 * ANIMATION_PRICE, 150),
+    "pack_5": ("5 animations", 5 * ANIMATION_PRICE, 300),
+    "pack_10": ("10 animations", 10 * ANIMATION_PRICE, 500),
+    "pack_25": ("25 animations", 25 * ANIMATION_PRICE, 1000),
 }
 
 # ----- Рефералка -----
@@ -1529,10 +1530,9 @@ async def on_payment(message: Message):
             ref_stars_balance[inviter_id] = ref_stars_balance.get(inviter_id, 0) + bonus_stars
 
             gained_credits = 0
-            while ref_stars_balance[inviter_id] >= 60:
-                ref_stars_balance[inviter_id] -= 60
-                # 👇 за каждые 60 реф. Stars даём 1 анимацию в БД
-                await add_user_credits(inviter_id, 1, "referral_stars_convert")
+            while ref_stars_balance[inviter_id] >= ANIMATION_PRICE:
+                ref_stars_balance[inviter_id] -= ANIMATION_PRICE
+                await add_user_credits(inviter_id, ANIMATION_PRICE, "referral_stars_convert")
                 gained_credits += 1
 
             try:
@@ -2198,7 +2198,7 @@ async def on_confirm_ok(query: CallbackQuery):
             await mark_free_used(uid)
         else:
             # бесплатка уже была — списываем 1 кредит через helpers_credits
-            ok, new_balance = await consume_user_credit(uid, 1)
+            ok, new_balance = await consume_user_credit(uid, ANIMATION_PRICE)
             if not ok:
                 logger.warning("User %s has no credits at confirm stage", uid)
 
