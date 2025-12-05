@@ -49,6 +49,7 @@ logging.basicConfig(
 logger = logging.getLogger("magicphotobot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "LIvePotterPhotoBot")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # чат/канал для поддержки (опц.)
 ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
@@ -744,7 +745,7 @@ def build_partner_dashboard_text(uid: int) -> str:
     cr_active = (active / total * 100) if total else 0.0
     cr_payers = (payers / total * 100) if total else 0.0
 
-    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
     level_text = get_partner_level(total, lang)
 
     if lang not in ("ua", "en", "es", "pt"):
@@ -823,7 +824,7 @@ def build_partner_dashboard_text(uid: int) -> str:
 
 def partner_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
-    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
 
     share_texts = {
         "ua": (
@@ -1408,7 +1409,7 @@ def buy_cta_keyboard(uid: int) -> InlineKeyboardMarkup:
         "es": "📤 Compartir",
         "pt": "📤 Compartilhar",
     }
-    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
     share_button = InlineKeyboardButton(
         text=share_labels.get(lang, share_labels["en"]),
         url=ref_link,
@@ -1635,7 +1636,7 @@ async def on_text(message: Message):
     if text == labels["share"]:
         awaiting_support.pop(uid, None)
         awaiting_video_order.pop(uid, None)
-        ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+        ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
         share_texts = {
             "ua": (
                 "📤 Поділись ботом з друзями:\n"
@@ -1733,7 +1734,7 @@ async def on_ref_share(query: CallbackQuery):
     uid = query.from_user.id
     register_user(uid)
     lang = get_lang(uid)
-    ref_link = f"https://t.me/LIvePotterPhotoBot?start=ref_{uid}"
+    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
     share_texts = {
         "ua": (
             "📤 Поділись ботом з друзями:\n"
