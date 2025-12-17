@@ -1812,26 +1812,24 @@ async def on_photo(message: Message):
 
 
 
-
-    # ------ 2) Обычная анимация фото (как было раньше), но через Postgres ------
+    
+# ------ 2) Обычная анимация фото (как было раньше), но через Postgres ------
     is_admin = (uid == ADMIN_USER_ID)
 
-# 🧠 Лимиты: если не тестовый админ, проверяем, можно ли вообще продолжать
+    # 🧠 Лимиты: если не тестовый админ, проверяем, можно ли вообще продолжать
     if not (TEST_MODE and is_admin):
-    # использовал ли юзер бесплатное оживление?
-    free_used = await has_used_free(uid)
+        free_used = await has_used_free(uid)
 
-    if free_used:
-        # бесплатка уже была → смотрим баланс Stars в БД
-        credits_balance = await get_user_credits(uid)
+        if free_used:
+            credits_balance = await get_user_credits(uid)
 
-        # нужно хотя бы 1 полная анимация = ANIMATION_PRICE Stars
-    if credits_balance < ANIMATION_PRICE:
-        await message.answer(
-            tr(uid, "free_used"),
-            reply_markup=buy_cta_keyboard(uid),
-        )
-        return
+            # нужно хотя бы 1 полная анимация = ANIMATION_PRICE Stars
+            if credits_balance < ANIMATION_PRICE:
+                await message.answer(
+                    tr(uid, "free_used"),
+                    reply_markup=buy_cta_keyboard(uid),
+                )
+                return
 
     
     # дальше оставляем твою логику без изменений
