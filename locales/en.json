@@ -17,7 +17,7 @@
   "balance_title": "💰 Your balance: <b>{credits}</b> animations. Use them to turn your favorite moments into living stories.",
   "free_used": "🆓 You’ve already used your free animation.\nTo continue the magic — choose a ⭐ package and animate more moments.",
 
-  "status_work": "⚙️ Working on your photo… this usually takes 20–60 seconds.\n⏳ Please wait — I’m casting some animation magic ✨",
+  "status_work": "⚙️ Processing your photo… this may take 3–10 minutes.\\n⏳ Please wait — I’m doing magic ✨",
   "done": "✨ Done! Your photo is now alive.\nSave it, share it with friends — and send another one if you want more magic.",
   "paid_ok": "✅ Payment successful!\nYou received: <b>{credits}</b> animations.\nCurrent balance: <b>{balance}</b>.\n\nReady for the next magic portrait? 🪄",
 
