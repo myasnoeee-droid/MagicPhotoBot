@@ -2,6 +2,7 @@ import os
 import aiohttp
 import asyncio
 import logging
+import time
 from typing import Optional, Dict, Any
 
 import requests
@@ -85,9 +86,19 @@ async def animate_photo_via_replicate(
             logger.error("Replicate (photo): no get URL in response")
             return {"ok": False, "error": "no_get_url"}
 
-        # 2) Ожидаем завершения (polling)
-        for _ in range(120):  # до ~2 минут
-            await asyncio.sleep(1)
+        # 2) Ожидаем завершения (polling) до 10 минут
+        PHOTO_TIMEOUT = 600          # 10 минут
+        POLL_INTERVAL = 3           # опрашиваем раз в 3 секунды
+
+        deadline = time.monotonic() + PHOTO_TIMEOUT
+
+        while True:
+            if time.monotonic() > deadline:
+                logger.error("Replicate (photo) timeout after %ss", PHOTO_TIMEOUT)
+                return {"ok": False, "error": "timeout"}
+
+            await asyncio.sleep(POLL_INTERVAL)
+
             try:
                 async with session.get(get_url, headers=headers) as resp2:
                     data = await resp2.json()
