@@ -17,7 +17,7 @@
   "balance_title": "💰 Tu balance: <b>{credits}</b> animaciones. Úsalas para convertir tus recuerdos en historias vivas.",
   "free_used": "🆓 Ya has usado tu animación gratuita.\nPara seguir con la magia, elige un paquete de ⭐ y anima aún más momentos.",
 
-  "status_work": "⚙️ Procesando tu foto… normalmente tarda entre 20 y 60 segundos ✨\n⏳ Espera un poco — estoy haciendo magia sobre tu imagen.",
+  "status_work": "⚙️ Procesando tu foto… puede tardar 3–10 minutos.\\n⏳ Por favor espera — estoy haciendo magia ✨",
   "done": "✨ ¡Listo! Tu foto ahora está viva.\nGuárdala, compártela con tus amigos y, si quieres, envía otra para seguir con la magia.",
   "paid_ok": "✅ ¡Pago completado!\nHas recibido: <b>{credits}</b> animaciones.\nBalance actual: <b>{balance}</b>.\n\n¿Probamos con otra foto mágica? 🪄",
 
