@@ -1830,8 +1830,7 @@ if not (TEST_MODE and is_admin):
             )
             return
 
-# если free_used == False → бесплатка ещё не использована, пропускаем дальше без проверок
-
+    
     # дальше оставляем твою логику без изменений
     photo = message.photo[-1]
 
