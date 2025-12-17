@@ -17,7 +17,7 @@
   "balance_title": "💰 Seu saldo: <b>{credits}</b> animações. Use-as para transformar suas lembranças em histórias vivas.",
   "free_used": "🆓 Você já usou sua animação gratuita.\nPara continuar a magia, escolha um pacote de ⭐ e anime ainda mais momentos.",
 
-  "status_work": "⚙️ Processando sua foto… isso geralmente leva de 20 a 60 segundos ✨\n⏳ Aguarde um pouco — estou lançando um feitiço de animação.",
+  "status_work": "⚙️ Processando sua foto… pode levar 3–10 minutos.\\n⏳ Por favor aguarde — estou fazendo magia ✨",
   "done": "✨ Pronto! Sua foto agora está viva.\nSalve, compartilhe com amigos — e se quiser, envie outra para mais magia.",
   "paid_ok": "✅ Pagamento efetuado!\nVocê recebeu: <b>{credits}</b> animações.\nSaldo atual: <b>{balance}</b>.\n\nVamos dar vida a mais uma foto? 🪄",
 
