@@ -1810,6 +1810,9 @@ async def on_photo(message: Message):
         await message.answer(texts.get(lang, texts["en"]))
         return
 
+
+
+
     # ------ 2) Обычная анимация фото (как было раньше), но через Postgres ------
 is_admin = (uid == ADMIN_USER_ID)
 
