@@ -57,7 +57,8 @@ async def animate_photo_via_replicate(
         "input": input_payload,
     }
 
-    timeout = aiohttp.ClientTimeout(total=600)
+    PHOTO_TIMEOUT = 600  # 10 минут
+    timeout = aiohttp.ClientTimeout(total=PHOTO_TIMEOUT + 30)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         # 1) создаём prediction
@@ -137,9 +138,6 @@ async def animate_photo_via_replicate(
                     err_msg = data.get("error") or data.get("logs") or status
                     logger.error("Replicate (photo) status=%s, error=%s", status, err_msg)
                     return {"ok": False, "error": err_msg}
-
-        logger.error("Replicate (photo) timeout")
-        return {"ok": False, "error": "timeout"}
 
 
 # ---------- ГОВОРЯЩАЯ ГОЛОВА ЧЕРЕЗ OMNI-HUMAN (фото + аудио) ----------
