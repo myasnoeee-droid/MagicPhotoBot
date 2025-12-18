@@ -35,14 +35,13 @@
   "btn_cancel": "❌ Cancelar",
 
   "preset_desc": {
-    "1": "Sorriso natural e suave com movimento facial realista, perfeito para retratos próximos.",
-    "2": "Retrato cinematográfico com iluminação profunda e clima de filme.",
-    "3": "Movimento suave com atmosfera quente e levemente nostálgica.",
-    "4": "Expressão emocional com mímica natural e foco no olhar.",
-    "5": "Piscada suave, sorriso leve e iluminação cinematográfica.",
-    "6": "Piscadinha natural e expressiva, ideal para um efeito divertido.",
-    "7": "Estilo filme 35mm vintage, com tons quentes e textura suave.",
-    "8": "Iluminação dramática com contraste forte e clima de cinema.",
-    "9": "Retrato editorial elegante com luz de estúdio suave e movimento confiante."
+  "1": "Vibe amigável: sorri e acena lentamente para a câmera.",
+  "2": "Reviver foto antiga: sorriso fofo, piscar de olhos, leve aproximação da câmera, poucos artefatos.",
+  "3": "Vibe em alta pela cena: adapta ao ambiente/roupa com micro-movimentos limpos.",
+  "4": "Sorri, pisca e gira lentamente no lugar (sem giros rápidos).",
+  "5": "Vibe de bruxo estilo Harry: óculos, manto, atmosfera mágica — rosto permanece reconhecível.",
+  "6": "Vibe de bruxo estilo Draco: elegância estilo Slytherin e carisma, movimento mínimo.",
+  "7": "Vibe de bruxo estilo Ron: clima quente estilo Gryffindor, sorriso amigável, movimento sutil.",
+  "8": "Vibe de bruxa estilo Hermione: estilo mágico confiante e inteligente, movimento suave, rosto reconhecível."
   }
 }
