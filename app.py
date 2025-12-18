@@ -215,15 +215,29 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
 # ---------- Пресеты (региональные) ----------
 
 PRESET_PROMPTS_BASE = [
-    "natural smile, slight head turn right, photorealistic",                     # 0 Natural smile
-    "cinematic portrait, subtle breathing, soft studio light, 24fps",           # 1 Cinematic look
-    "gentle movement, hair flutter, soft focus, ethereal glow",                 # 2 Dreamy motion
-    "smile softly, natural head tilt, expressive eyes, warm tone lighting",     # 3 Expressive vibe
-    "gentle eye blink, slow smile, cinematic lighting, photorealistic",         # 4 Blink & glow
-    "subtle wink, slight smile, natural head motion, photorealistic lighting",  # 5 Wink
-    "vintage 35mm film look, soft focus, warm tones, subtle motion",            # 6 Vintage film
-    "dramatic lighting, strong shadows, cinematic mood, expressive face",       # 7 Dramatic lighting
-    "editorial portrait, soft bounce light, slight head movement, elegant expression"  # 8 Editorial portrait
+    # 0) Smile + Wave
+    "photorealistic portrait, friendly smile, natural eye blink, gentle breathing, raise one hand and wave slowly toward the camera, subtle head movement, smooth motion, no exaggerated gestures, preserve identity",
+
+    # 1) Old photo revival (cute smile + moving closer)
+    "restore old photo vibe, preserve facial structure, minimal artifacts, gentle blink, cute warm smile, subtle forward lean toward the camera, tiny head movement, smooth slow motion, photorealistic, no distortion, keep identity",
+
+    # 2) Trend vibe from environment (context-aware)
+    "analyze surrounding environment and outfit, create a trendy social-media vibe that matches the scene, subtle confident expression, natural micro-movements, gentle breathing, smooth camera-friendly motion, photorealistic, preserve identity, no random shaking",
+
+    # 3) Smile + Blink + Spin (safe spin)
+    "smile warmly, natural blinking, gentle breathing, slow smooth rotation in place (small body turn, not fast), keep face stable, photorealistic, no warping, no big head turns, preserve identity",
+
+    # 4) Transform into Harry Potter vibe (wizard student)
+    "transform the person into a Harry Potter-inspired wizard student: round glasses, Hogwarts-style robe and tie, subtle magical ambiance, wand in hand, friendly smile, gentle blink, soft cinematic lighting, photorealistic, keep face recognizable",
+
+    # 5) Transform into Draco Malfoy vibe (Slytherin)
+    "transform the person into a Draco Malfoy-inspired Slytherin student: platinum blond hair, elegant smug expression, Slytherin-inspired robe, subtle blink, minimal motion, cinematic lighting, photorealistic, keep face recognizable",
+
+    # 6) Transform into Ron Weasley vibe (Gryffindor)
+    "transform the person into a Ron Weasley-inspired Gryffindor student: ginger hair, warm friendly grin, cozy Hogwarts-style sweater/robe, gentle blink, subtle head movement, photorealistic, keep face recognizable",
+
+    # 7) Transform into Hermione Granger vibe (Gryffindor)
+    "transform the person into a Hermione Granger-inspired Gryffindor student: wavy brown hair, smart confident smile, Hogwarts-style uniform, gentle blink, subtle breathing, photorealistic, keep face recognizable",
 ]
 
 PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
@@ -263,48 +277,44 @@ def get_preset_prompt(lang: str, idx: int) -> str:
 
 PRESET_TITLES: Dict[str, list[str]] = {
     "en": [
-        "😊 Natural smile",
-        "🎬 Cinematic look",
-        "🕊️ Dreamy motion",
-        "🔥 Expressive vibe",
-        "💡 Blink & Glow ⭐ recommended for old photos",
-        "😉 Wink",
-        "🎞 Vintage film",
-        "💥 Dramatic lighting",
-        "🖼 Editorial portrait",
+        "👋 Smile & Wave",
+        "🕰 Old Photo Revival ⭐",
+        "🔥 Trend Vibe (Scene-based)",
+        "🌀 Blink & Spin",
+        "⚡ Wizard: Harry vibe",
+        "🐍 Wizard: Draco vibe",
+        "🦁 Wizard: Ron vibe",
+        "📚 Wizard: Hermione vibe",
     ],
     "ua": [
-        "😊 Natural smile",
-        "🎬 Cinematic look",
-        "🕊️ Dreamy motion",
-        "🔥 Expressive vibe",
-        "💡 Blink & Glow ⭐ рекомендовано для старих фото",
-        "😉 Wink",
-        "🎞 Vintage film",
-        "💥 Dramatic lighting",
-        "🖼 Editorial portrait",
+        "👋 Усмішка + махає рукою",
+        "🕰 Оживлення старих фото ⭐",
+        "🔥 Трендовий вайб (по сцені)",
+        "🌀 Моргає + крутиться",
+        "⚡ Чарівник: вайб Гаррі",
+        "🐍 Чарівник: вайб Драко",
+        "🦁 Чарівник: вайб Рона",
+        "📚 Чарівниця: вайб Герміони",
     ],
     "es": [
-        "😊 Sonrisa natural",
-        "🎬 Look cinematográfico",
-        "🕊️ Movimiento suave",
-        "🔥 Vibras expresivas",
-        "💡 Parpadeo suave & brillo ⭐ ideal para fotos antiguas",
-        "😉 Guiño sutil",
-        "🎞 Estilo película vintage",
-        "💥 Iluminación dramática",
-        "🖼 Retrato editorial",
+        "👋 Sonríe y saluda",
+        "🕰 Revivir foto antigua ⭐",
+        "🔥 Vibe en tendencia (según escena)",
+        "🌀 Parpadea y gira",
+        "⚡ Mago: vibra Harry",
+        "🐍 Mago: vibra Draco",
+        "🦁 Mago: vibra Ron",
+        "📚 Maga: vibra Hermione",
     ],
     "pt": [
-        "😊 Sorriso natural",
-        "🎬 Visual cinematográfico",
-        "🕊️ Movimento suave",
-        "🔥 Vibração expressiva",
-        "💡 Piscar suave & brilho ⭐ ideal para fotos antigas",
-        "😉 Piscadinha sutil",
-        "🎞 Filme vintage 35mm",
-        "💥 Iluminação dramática",
-        "🖼 Retrato editorial",
+        "👋 Sorriso e aceno",
+        "🕰 Reviver foto antiga ⭐",
+        "🔥 Vibe em alta (pela cena)",
+        "🌀 Pisca e gira",
+        "⚡ Bruxo: vibe Harry",
+        "🐍 Bruxo: vibe Draco",
+        "🦁 Bruxo: vibe Ron",
+        "📚 Bruxa: vibe Hermione",
     ],
 }
 
@@ -1855,7 +1865,7 @@ async def on_photo(message: Message):
     lang = get_lang(uid)
 
     if is_old_like:
-        idx = 4
+        idx = 1
         pending_choice[uid] = {"type": "preset", "idx": idx}
 
         titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
