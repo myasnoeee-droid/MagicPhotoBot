@@ -34,15 +34,14 @@
   "btn_use_caption": "👉 Use caption as a magic prompt",
   "btn_cancel": "❌ Cancel",
 
-  "preset_desc": {
-    "1": "Natural soft smile with smooth, realistic motion — perfect for friendly portraits.",
-    "2": "Cinematic portrait with deep lighting and subtle breathing, like a movie close-up.",
-    "3": "Dreamy, gentle movement with a warm, nostalgic atmosphere.",
-    "4": "Expressive emotional look with natural facial motion and focus on the eyes.",
-    "5": "Soft blink, gentle smile and elegant cinematic lighting.",
-    "6": "Playful, natural wink with lively, expressive eyes.",
-    "7": "Vintage 35mm film style with warm tones and a subtle analog feel.",
-    "8": "Dramatic lighting with strong contrast and a bold, cinematic mood.",
-    "9": "Editorial-style portrait with soft studio light and confident, elegant motion."
+ "preset_desc": {
+  "1": "Friendly vibe: smiles and slowly waves at the camera.",
+  "2": "Old photo revival: cute smile, blinking, gentle move toward the camera, minimal artifacts.",
+  "3": "Trend vibe from the scene: adapts to the environment/outfit with clean micro-movements.",
+  "4": "Smiles, blinks, and slowly turns in place (no fast spinning).",
+  "5": "Wizard Harry vibe: glasses, robe, subtle magic atmosphere — face stays recognizable.",
+  "6": "Wizard Draco vibe: Slytherin-inspired elegance and charisma, minimal motion.",
+  "7": "Wizard Ron vibe: warm Gryffindor feel, friendly grin, subtle movement.",
+  "8": "Wizard Hermione vibe: smart confident magical style, gentle motion, recognizable face."
   }
 }
