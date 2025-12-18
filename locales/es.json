@@ -35,14 +35,13 @@
   "btn_cancel": "❌ Cancelar",
 
   "preset_desc": {
-    "1": "Sonrisa natural y suave con movimiento facial realista, ideal para retratos cercanos.",
-    "2": "Retrato cinematográfico con iluminación profunda y un toque de cine.",
-    "3": "Movimiento suave y etéreo con una atmósfera cálida y nostálgica.",
-    "4": "Expresión emocional con mímica natural y foco en la mirada.",
-    "5": "Parpadeo suave, ligera sonrisa y luz de estilo cinematográfico.",
-    "6": "Guiño natural y expresivo, perfecto para un efecto juguetón.",
-    "7": "Estilo película retro 35mm, con tonos cálidos y textura suave.",
-    "8": "Iluminación dramática con sombras marcadas y ambiente de cine.",
-    "9": "Retrato editorial elegante con luz suave de estudio y movimiento seguro."
+  "1": "Vibra amigable: sonríe y saluda lentamente a la cámara.",
+  "2": "Revivir foto antigua: sonrisa dulce, parpadeo, leve acercamiento a la cámara, mínimos artefactos.",
+  "3": "Vibe en tendencia según la escena: se adapta al entorno/ropa con micro-movimientos limpios.",
+  "4": "Sonríe, parpadea y gira lentamente en el lugar (sin giros rápidos).",
+  "5": "Vibra de mago estilo Harry: gafas, túnica, atmósfera mágica — el rostro sigue reconocible.",
+  "6": "Vibra de mago estilo Draco: elegancia tipo Slytherin y carisma, movimiento mínimo.",
+  "7": "Vibra de mago estilo Ron: toque cálido tipo Gryffindor, sonrisa amable, movimiento sutil.",
+  "8": "Vibra de maga estilo Hermione: estilo mágico seguro e inteligente, movimiento suave, rostro reconocible."
   }
 }
