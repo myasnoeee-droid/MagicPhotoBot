@@ -2119,17 +2119,22 @@ async def on_retry_last(query: CallbackQuery):
     info = pending_photo.get(uid)
     choice = pending_choice.get(uid)
 
+    # Сразу закрываем callback, чтобы не ловить "Query is too old"
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
     if not info or not choice:
         await query.message.edit_text(
             tr(uid, "choose_preset"),
             reply_markup=preset_keyboard(uid, has_caption=False)
         )
-        await query.answer()
         return
 
-    # повторяем генерацию тем же контекстом
+    # Повторяем генерацию тем же контекстом
     await on_confirm_ok(query)
-
+    
 @dp.callback_query(F.data == "confirm:ok")
 async def on_confirm_ok(query: CallbackQuery):
     uid = query.from_user.id
