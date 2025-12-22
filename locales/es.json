@@ -30,18 +30,18 @@
   "send_support": "🆘 ¿Algo no salió como esperabas o tienes dudas? Escríbelo en un solo mensaje y se lo enviaré al mago de soporte.",
   "support_sent": "📝 ¡Gracias! He enviado tu mensaje al soporte. Te responderán en cuanto terminen sus hechizos actuales.",
 
-  "choose_preset": "🎨 Elige un preset mágico para decidir cómo se moverá y cobrará vida tu foto:",
+  "choose_preset": "🎨 Elige un preset mágico abajo 👇\n\nConsejo: los retratos de frente con buena luz se ven más realistas ✨",
   "btn_use_caption": "👉 Usar la descripción como prompt mágico",
   "btn_cancel": "❌ Cancelar",
 
   "preset_desc": {
-  "1": "Vibra amigable: sonríe y saluda lentamente a la cámara.",
-  "2": "Revivir foto antigua: sonrisa dulce, parpadeo, leve acercamiento a la cámara, mínimos artefactos.",
-  "3": "Vibe en tendencia según la escena: se adapta al entorno/ropa con micro-movimientos limpios.",
-  "4": "Sonríe, parpadea y gira lentamente en el lugar (sin giros rápidos).",
-  "5": "Vibra de mago estilo Harry: gafas, túnica, atmósfera mágica — el rostro sigue reconocible.",
-  "6": "Vibra de mago estilo Draco: elegancia tipo Slytherin y carisma, movimiento mínimo.",
-  "7": "Vibra de mago estilo Ron: toque cálido tipo Gryffindor, sonrisa amable, movimiento sutil.",
-  "8": "Vibra de maga estilo Hermione: estilo mágico seguro e inteligente, movimiento suave, rostro reconocible."
+  "1": "Sonrisa cálida + saludo lento hacia la cámara. Muy natural y amable.",
+  "2": "Emoción suave: dos personas se acercan y se abrazan con ternura. Conexión real.",
+  "3": "Revivir foto antigua: look restaurado vintage que cobra vida con movimiento mínimo y nostalgia.",
+  "4": "Primer plano cinematográfico: mirada profunda, micro-expresiones y movimiento suave de cabeza.",
+  "5": "Lujo minimalista: sonrisa muy sutil + parpadeo, luz de estudio, máximo realismo.",
+  "6": "Presencia natural: giro leve hacia la cámara, mirada viva, movimiento calmado.",
+  "7": "Momento alegre: sonrisa auténtica con ligera risa, energía emocional cálida.",
+  "8": "Mirada emocional tranquila: contacto visual lento e íntimo, cambios sutiles, movimiento mínimo."
   }
 }
