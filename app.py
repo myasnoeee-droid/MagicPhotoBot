@@ -52,7 +52,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "LivePotterPhotoBot")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 SUPPORT_CHAT_ID = int(os.getenv("SUPPORT_CHAT_ID", "0"))  # чат/канал для поддержки (опц.)
-ALLOWED_CHAT_IDS = [int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x]
+ALLOWED_CHAT_IDS = [
+    int(x.strip()) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x.strip()
+]
 MAX_FREE_ANIMS_PER_USER = int(os.getenv("MAX_FREE_ANIMS_PER_USER", "1"))
 DOWNLOAD_TMP_DIR = os.getenv("DOWNLOAD_TMP_DIR", "/tmp")
 ANIMATION_PRICE = 60       # Stars per normal animation
@@ -2187,7 +2189,7 @@ async def on_confirm_ok(query: CallbackQuery):
             }
             await query.message.edit_text(
                 busy_map.get(lang, busy_map["en"]),
-                reply_markup=retry_last_keyboard(uid),
+                reply_markup=confirm_preset_keyboard(uid),
             )
             return
 
@@ -2245,7 +2247,7 @@ async def on_confirm_ok(query: CallbackQuery):
         }
         await query.message.edit_text(
             err_map.get(lang, err_map["en"]),
-            reply_markup=retry_last_keyboard(uid),
+            reply_markup=confirm_preset_keyboard(uid),
         )
         return
 
