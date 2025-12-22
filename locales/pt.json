@@ -30,18 +30,18 @@
   "send_support": "🆘 Teve algum problema ou dúvida? Escreva tudo em uma única mensagem e eu vou enviar para o mago humano de suporte.",
   "support_sent": "📝 Obrigado! Já enviei sua mensagem para o suporte. Eles vão responder assim que terminarem os feitiços atuais.",
 
-  "choose_preset": "🎨 Escolha um preset mágico para definir como sua foto vai se mover e ganhar vida:",
+  "choose_preset": "🎨 Escolha um preset mágico abaixo 👇\n\nDica: retratos de frente com boa luz ficam mais realistas ✨",
   "btn_use_caption": "👉 Usar descrição como prompt mágico",
   "btn_cancel": "❌ Cancelar",
 
   "preset_desc": {
-  "1": "Vibe amigável: sorri e acena lentamente para a câmera.",
-  "2": "Reviver foto antiga: sorriso fofo, piscar de olhos, leve aproximação da câmera, poucos artefatos.",
-  "3": "Vibe em alta pela cena: adapta ao ambiente/roupa com micro-movimentos limpos.",
-  "4": "Sorri, pisca e gira lentamente no lugar (sem giros rápidos).",
-  "5": "Vibe de bruxo estilo Harry: óculos, manto, atmosfera mágica — rosto permanece reconhecível.",
-  "6": "Vibe de bruxo estilo Draco: elegância estilo Slytherin e carisma, movimento mínimo.",
-  "7": "Vibe de bruxo estilo Ron: clima quente estilo Gryffindor, sorriso amigável, movimento sutil.",
-  "8": "Vibe de bruxa estilo Hermione: estilo mágico confiante e inteligente, movimento suave, rosto reconhecível."
+  "1": "Sorriso quente + aceno lento para a câmera. Bem natural e acolhedor.",
+  "2": "Emoção suave: duas pessoas se aproximam e se abraçam com carinho. Conexão real.",
+  "3": "Foto antiga revive: visual vintage restaurado ganha vida com movimento mínimo e nostalgia.",
+  "4": "Close cinematográfico: olhar profundo, microexpressões e movimento suave da cabeça.",
+  "5": "Luxo minimalista: sorriso super sutil + piscadas, luz de estúdio, máximo realismo.",
+  "6": "Presença natural: leve virada para a câmera, olhar vivo, movimento calmo.",
+  "7": "Momento feliz: sorriso genuíno com leve risada, energia emocional quente.",
+  "8": "Olhar emocional e quieto: contato visual lento e íntimo, mudanças sutis, movimento mínimo."
   }
 }
