@@ -2109,6 +2109,25 @@ async def on_confirm_back(query: CallbackQuery):
     await query.answer()
 
 
+@dp.callback_query(F.data == "retry:last")
+async def on_retry_last(query: CallbackQuery):
+    uid = query.from_user.id
+    register_user(uid)
+
+    info = pending_photo.get(uid)
+    choice = pending_choice.get(uid)
+
+    if not info or not choice:
+        await query.message.edit_text(
+            tr(uid, "choose_preset"),
+            reply_markup=preset_keyboard(uid, has_caption=False)
+        )
+        await query.answer()
+        return
+
+    # повторяем генерацию тем же контекстом
+    await on_confirm_ok(query)
+
 @dp.callback_query(F.data == "confirm:ok")
 async def on_confirm_ok(query: CallbackQuery):
     uid = query.from_user.id
@@ -2116,7 +2135,6 @@ async def on_confirm_ok(query: CallbackQuery):
     # ✅ гарантируем, что юзер есть в таблице users
     await ensure_user(uid)
 
-    # если register_user делает что-то ещё (локали, режим и т.п.) — оставляем
     register_user(uid)
 
     info = pending_photo.get(uid)
@@ -2127,15 +2145,15 @@ async def on_confirm_ok(query: CallbackQuery):
         return
 
     is_admin = (uid == ADMIN_USER_ID)
-
     lang = get_lang(uid)
+
     if choice["type"] == "caption":
         prompt = info["caption"] or "natural smile, subtle head motion, cinematic lighting"
     else:
         idx = int(choice["idx"] or 0)
         prompt = get_preset_prompt(lang, idx)
 
-    # ✅ НОВОЕ: статус ожидания 3–10 минут
+    # ✅ статус ожидания
     status_map = {
         "ua": "✨ Оживляю фото…\n⏳ Орієнтовний час: <b>3–10 хвилин</b>\nБудь ласка, не закривай чат 🪄",
         "en": "✨ Animating your photo…\n⏳ Estimated time: <b>3–10 minutes</b>\nPlease keep the chat open 🪄",
@@ -2147,6 +2165,7 @@ async def on_confirm_ok(query: CallbackQuery):
 
     global gen_success, gen_fail
 
+    tmp_path = None
     try:
         file_info = await bot.get_file(info["file_id"])
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
@@ -2156,7 +2175,7 @@ async def on_confirm_ok(query: CallbackQuery):
             prompt=prompt,
         )
 
-        # ✅ НОВОЕ: fallback, если модель перегружена/ошибка
+        # ✅ если модель вернула ошибку/overload — показываем retry
         if not result.get("ok"):
             gen_fail += 1
 
@@ -2166,11 +2185,53 @@ async def on_confirm_ok(query: CallbackQuery):
                 "es": "⚠️ El modelo está sobrecargado ahora.\nInténtalo de nuevo en <b>2–3 minutos</b> 🪄",
                 "pt": "⚠️ O modelo está sobrecarregado agora.\nTente novamente em <b>2–3 minutos</b> 🪄",
             }
-            await query.message.edit_text(busy_map.get(lang, busy_map["en"]))
-
-            # сбрасываем выбор, чтобы юзер мог заново нажать ✅ или выбрать другой пресет
-            pending_choice.pop(uid, None)
+            await query.message.edit_text(
+                busy_map.get(lang, busy_map["en"]),
+                reply_markup=retry_last_keyboard(uid),
+            )
             return
+
+        gen_success += 1
+
+        video_url = result["url"]
+        tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
+        await download_file(video_url, tmp_path)
+
+        wm_map = {
+            "ua": "\n\n🔖 Зроблено в Magl’sBot",
+            "en": "\n\n🔖 Made with Magl’sBot",
+            "es": "\n\n🔖 Hecho en Magl’sBot",
+            "pt": "\n\n🔖 Feito no Magl’sBot",
+        }
+        watermark_suffix = wm_map.get(lang, "\n\n🔖 Made with Magl’sBot")
+
+        await bot.send_video(
+            chat_id=query.message.chat.id,
+            video=FSInputFile(tmp_path),
+            caption=tr(uid, "done") + watermark_suffix,
+            reply_markup=buy_cta_keyboard(uid),
+        )
+
+        # реферальный текст
+        ref_text = referral_info_text(lang)
+        await bot.send_message(
+            chat_id=query.message.chat.id,
+            text=ref_text,
+        )
+
+        # списания/бесплатка
+        if not (TEST_MODE and is_admin):
+            free_used = await has_used_free(uid)
+            if not free_used:
+                await mark_free_used(uid)
+            else:
+                ok, _new_balance = await consume_user_credit(uid, ANIMATION_PRICE)
+                if not ok:
+                    logger.warning("User %s has no credits at confirm stage", uid)
+
+        # чистим pending только после успеха
+        pending_photo.pop(uid, None)
+        pending_choice.pop(uid, None)
 
     except Exception as e:
         gen_fail += 1
@@ -2182,67 +2243,18 @@ async def on_confirm_ok(query: CallbackQuery):
             "es": "⚠️ Ocurrió un error al procesar.\nIntenta de nuevo en <b>1–2 minutos</b> o envía otra foto.",
             "pt": "⚠️ Ocorreu um erro ao processar.\nTente novamente em <b>1–2 minutos</b> ou envie outra foto.",
         }
-        await query.message.edit_text(err_map.get(lang, err_map["en"]))
-
-        pending_choice.pop(uid, None)
+        await query.message.edit_text(
+            err_map.get(lang, err_map["en"]),
+            reply_markup=retry_last_keyboard(uid),
+        )
         return
 
-        gen_success += 1
-
-        video_url = result["url"]
-        tmp_path = os.path.join(DOWNLOAD_TMP_DIR, f"anim_{info['file_id']}.mp4")
-        await download_file(video_url, tmp_path)
-
-    except Exception as e:
-        gen_fail += 1
-        logger.exception("Animation error: %s", e)
-        await query.message.edit_text("Error while processing. Try another photo.")
-        return
-
-    # ---- сюда мы попадаем только если всё ОК ----
-
-    wm_map = {
-        "ua": "\n\n🔖 Зроблено в Magl’sBot",
-        "en": "\n\n🔖 Made with Magl’sBot",
-        "es": "\n\n🔖 Hecho en Magl’sBot",
-        "pt": "\n\n🔖 Feito no Magl’sBot",
-    }
-    watermark_suffix = wm_map.get(lang, "\n\n🔖 Made with Magl’sBot")
-
-    await bot.send_video(
-        chat_id=query.message.chat.id,
-        video=FSInputFile(tmp_path),
-        caption=tr(uid, "done") + watermark_suffix,
-        reply_markup=buy_cta_keyboard(uid),
-    )
-
-    ref_text = referral_info_text(lang)
-    await bot.send_message(
-        chat_id=query.message.chat.id,
-        text=ref_text,
-    )
-
-    # 💾 после УСПЕШНОЙ генерации:
-    # либо отмечаем бесплатку, либо списываем кредит
-    if not (TEST_MODE and is_admin):
-        free_used = await has_used_free(uid)
-
-        if not free_used:
-            # это была первая (бесплатная) анимация
-            await mark_free_used(uid)
-        else:
-            # бесплатка уже была — списываем 1 кредит через helpers_credits
-            ok, new_balance = await consume_user_credit(uid, ANIMATION_PRICE)
-            if not ok:
-                logger.warning("User %s has no credits at confirm stage", uid)
-
-    try:
-        os.remove(tmp_path)
-    except Exception:
-        pass
-
-    pending_photo.pop(uid, None)
-    pending_choice.pop(uid, None)
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 # ---------- MAIN ----------
 
