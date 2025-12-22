@@ -354,30 +354,46 @@ def preset_keyboard(uid: int, has_caption: bool) -> InlineKeyboardMarkup:
 
 def confirm_preset_keyboard(uid: int) -> InlineKeyboardMarkup:
     lang = get_lang(uid)
+
     confirm_labels = {
         "ua": "✅ Запустити",
         "en": "✅ Start",
         "es": "✅ Iniciar",
         "pt": "✅ Iniciar",
     }
+
+    retry_labels = {
+        "ua": "🔁 Спробувати ще раз",
+        "en": "🔁 Try again",
+        "es": "🔁 Intentar de nuevo",
+        "pt": "🔁 Tentar novamente",
+    }
+
     back_labels = {
         "ua": "🔙 Назад",
         "en": "🔙 Back",
         "es": "🔙 Volver",
         "pt": "🔙 Voltar",
     }
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text=confirm_labels.get(lang, "✅ Start"),
-                    callback_data="confirm:ok"
+                    callback_data="confirm:ok",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=retry_labels.get(lang, "🔁 Try again"),
+                    callback_data="retry:last",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text=back_labels.get(lang, "🔙 Back"),
-                    callback_data="confirm:back"
+                    callback_data="confirm:back",
                 )
             ],
         ]
