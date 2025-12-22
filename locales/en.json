@@ -30,18 +30,18 @@
   "send_support": "🆘 Got a question or something doesn’t look right? Write it in one message and I’ll pass it to the human support wizard.",
   "support_sent": "📝 Thank you! I’ve sent your message to support. They’ll reply as soon as they finish their current spells.",
 
-  "choose_preset": "🎨 Choose a magic preset to decide how exactly your photo will come to life:",
+  "choose_preset": "🎨 Choose a magic preset below 👇\n\nTip: front-facing portraits with good light look the most realistic ✨",
   "btn_use_caption": "👉 Use caption as a magic prompt",
   "btn_cancel": "❌ Cancel",
 
  "preset_desc": {
-  "1": "Friendly vibe: smiles and slowly waves at the camera.",
-  "2": "Old photo revival: cute smile, blinking, gentle move toward the camera, minimal artifacts.",
-  "3": "Trend vibe from the scene: adapts to the environment/outfit with clean micro-movements.",
-  "4": "Smiles, blinks, and slowly turns in place (no fast spinning).",
-  "5": "Wizard Harry vibe: glasses, robe, subtle magic atmosphere — face stays recognizable.",
-  "6": "Wizard Draco vibe: Slytherin-inspired elegance and charisma, minimal motion.",
-  "7": "Wizard Ron vibe: warm Gryffindor feel, friendly grin, subtle movement.",
-  "8": "Wizard Hermione vibe: smart confident magical style, gentle motion, recognizable face."
+  "1": "Warm smile + a slow friendly wave toward the camera. Super natural and welcoming.",
+  "2": "Soft emotions: two people gently lean in and hug. Warm, real connection.",
+  "3": "Old photo revival: restored vintage look comes to life with minimal motion and nostalgic vibe.",
+  "4": "Cinematic close-up: deep eye contact, subtle micro-expressions, gentle head motion.",
+  "5": "Luxury minimalism: ultra subtle smile + blinking, studio light, maximum realism.",
+  "6": "Natural presence: slight turn toward the camera, lifelike eye movement, calm motion.",
+  "7": "Joyful moment: genuine happy smile with a soft laugh expression, warm emotional energy.",
+  "8": "Quiet emotional look: slow intimate eye contact, subtle expression changes, minimal movement."
   }
 }
