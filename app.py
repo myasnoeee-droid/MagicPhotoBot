@@ -215,56 +215,36 @@ def lang_choice_keyboard() -> InlineKeyboardMarkup:
 # ---------- Пресеты (региональные) ----------
 
 PRESET_PROMPTS_BASE = [
-    # 0) Smile + Wave
-    "photorealistic portrait, friendly smile, natural eye blink, gentle breathing, raise one hand and wave slowly toward the camera, subtle head movement, smooth motion, no exaggerated gestures, preserve identity",
+    # 0) Friendly Wave (Smile & Wave)
+    "photorealistic cinematic portrait animation, warm genuine smile, subtle breathing, natural micro facial movements, gentle eye blink, raise one hand and wave slowly toward the camera, smooth motion, stable face, preserve identity, ultra realistic skin texture, soft daylight, no jitter, no warping",
 
-    # 1) Old photo revival (cute smile + moving closer)
-    "restore old photo vibe, preserve facial structure, minimal artifacts, gentle blink, cute warm smile, subtle forward lean toward the camera, tiny head movement, smooth slow motion, photorealistic, no distortion, keep identity",
+    # 1) Warm Hug (Emotional Embrace)
+    "two people gently lean closer and softly hug, warm smiles, natural emotional connection, subtle breathing, realistic interaction, smooth slow motion, soft cinematic lighting, photorealistic faces, stable identity, no distortions, no extra limbs, premium film realism",
 
-    # 2) Trend vibe from environment (context-aware)
-    "analyze surrounding environment and outfit, create a trendy social-media vibe that matches the scene, subtle confident expression, natural micro-movements, gentle breathing, smooth camera-friendly motion, photorealistic, preserve identity, no random shaking",
+    # 2) Vintage Restoration (Old Photo Revival)  ⭐ auto for old-like
+    "restored vintage photograph comes to life, preserve historical realism and identity, subtle blinking, gentle warm smile, minimal motion, natural breathing, soft film-like lighting, photorealistic restoration, minimal artifacts, no face warping, respectful nostalgic atmosphere",
 
-    # 3) Smile + Blink + Spin (safe spin)
-    "smile warmly, natural blinking, gentle breathing, slow smooth rotation in place (small body turn, not fast), keep face stable, photorealistic, no warping, no big head turns, preserve identity",
+    # 3) Expressive Vibe (Modern Cinematic Emotion) 🔥
+    "expressive cinematic close-up portrait, deep eye contact, subtle emotional micro-expressions, slow head movement, natural blinking, calm breathing, premium fashion film aesthetics, soft dramatic lighting, photorealistic skin detail, elegant controlled motion, preserve identity",
 
-    # 4) Transform into Harry Potter vibe (wizard student)
-    "transform the person into a Harry Potter-inspired wizard student: round glasses, Hogwarts-style robe and tie, subtle magical ambiance, wand in hand, friendly smile, gentle blink, soft cinematic lighting, photorealistic, keep face recognizable",
+    # 4) Luxury Minimalism (Gentle Smile & Blink)
+    "ultra realistic portrait animation, gentle natural smile, slow blinking, minimal head motion, calm breathing, soft studio lighting, luxury editorial look, extremely subtle motion, high-end cinematic realism, preserve identity, no distortions",
 
-    # 5) Transform into Draco Malfoy vibe (Slytherin)
-    "transform the person into a Draco Malfoy-inspired Slytherin student: platinum blond hair, elegant smug expression, Slytherin-inspired robe, subtle blink, minimal motion, cinematic lighting, photorealistic, keep face recognizable",
+    # 5) Natural Presence (Slight turn toward camera)
+    "photorealistic person slightly turns head toward the camera, natural relaxed smile, realistic eye movement, subtle breathing, calm cinematic motion, soft natural light, lifelike presence, premium film realism, preserve identity, stable face",
 
-    # 6) Transform into Ron Weasley vibe (Gryffindor)
-    "transform the person into a Ron Weasley-inspired Gryffindor student: ginger hair, warm friendly grin, cozy Hogwarts-style sweater/robe, gentle blink, subtle head movement, photorealistic, keep face recognizable",
+    # 6) Joyful Moment (Happy memory)
+    "person smiles with genuine joy, soft laugh expression, subtle body movement, natural head motion, warm emotional energy, realistic facial animation, cinematic lighting, authentic human emotion, smooth natural motion, preserve identity, no jitter",
 
-    # 7) Transform into Hermione Granger vibe (Gryffindor)
-    "transform the person into a Hermione Granger-inspired Gryffindor student: wavy brown hair, smart confident smile, Hogwarts-style uniform, gentle blink, subtle breathing, photorealistic, keep face recognizable",
+    # 7) Quiet Emotional Look (Deep connection)
+    "cinematic close-up portrait, person slowly looks into the camera with deep emotion, subtle facial micro-expressions, slow blinking, natural breathing, intimate realistic atmosphere, soft dramatic lighting, premium film realism, preserve identity, minimal motion",
 ]
 
 PRESET_PROMPTS_BY_LANG: Dict[str, list[str]] = {
     "ua": PRESET_PROMPTS_BASE,
     "en": PRESET_PROMPTS_BASE,
-    "es": [
-        "warm natural smile, slight head turn right, photorealistic skin texture",
-        "cinematic close-up portrait, subtle breathing, soft studio light, 24fps",
-        "gentle flowing movement, light hair flutter, dreamy soft focus, ethereal glow",
-        "soft smile, relaxed head tilt, very expressive eyes, warm golden lighting",
-        "slow gentle eye blink, slow smile, cinematic contrast, photorealistic detail",
-        "playful subtle wink, small smile, natural head motion, beauty lighting",
-        "nostalgic vintage 35mm film look, film grain, warm tones, subtle motion",
-        "strong dramatic lighting, deep shadows, intense cinematic mood, expressive face",
-        "fashion editorial portrait, soft bounce light, elegant slow head movement"
-    ],
-    "pt": [
-        "soft natural smile, slight head turn, realistic skin and eyes",
-        "cinematic portrait shot, calm breathing, soft studio light, 24fps look",
-        "smooth gentle movement, light hair motion, dreamy soft focus, glow",
-        "soft sweet smile, natural head tilt, warm expressive eyes, cozy lighting",
-        "gentle eye blink, slow friendly smile, cinematic lighting, realistic details",
-        "cute subtle wink, light smile, natural head motion, flattering light",
-        "retro 35mm film style, film grain, warm nostalgic tones, subtle motion",
-        "cinematic dramatic lighting, strong contrast, emotional portrait, deep shadows",
-        "elegant editorial portrait, soft studio bounce light, slow refined movement"
-    ],
+    "es": PRESET_PROMPTS_BASE,
+    "pt": PRESET_PROMPTS_BASE,
 }
 
 
@@ -1865,7 +1845,7 @@ async def on_photo(message: Message):
     lang = get_lang(uid)
 
     if is_old_like:
-        idx = 1
+        idx = 2
         pending_choice[uid] = {"type": "preset", "idx": idx}
 
         titles = PRESET_TITLES.get(lang, PRESET_TITLES["en"])
@@ -2139,7 +2119,14 @@ async def on_confirm_ok(query: CallbackQuery):
         idx = int(choice["idx"] or 0)
         prompt = get_preset_prompt(lang, idx)
 
-    await query.message.edit_text(tr(uid, "status_work"))
+    # ✅ НОВОЕ: статус ожидания 3–10 минут
+    status_map = {
+        "ua": "✨ Оживляю фото…\n⏳ Орієнтовний час: <b>3–10 хвилин</b>\nБудь ласка, не закривай чат 🪄",
+        "en": "✨ Animating your photo…\n⏳ Estimated time: <b>3–10 minutes</b>\nPlease keep the chat open 🪄",
+        "es": "✨ Animando tu foto…\n⏳ Tiempo estimado: <b>3–10 minutos</b>\nPor favor, mantén el chat abierto 🪄",
+        "pt": "✨ Animando sua foto…\n⏳ Tempo estimado: <b>3–10 minutos</b>\nPor favor, mantenha o chat aberto 🪄",
+    }
+    await query.message.edit_text(status_map.get(lang, status_map["en"]))
     await query.answer()
 
     global gen_success, gen_fail
@@ -2153,14 +2140,36 @@ async def on_confirm_ok(query: CallbackQuery):
             prompt=prompt,
         )
 
-        # ---- Проверка ответа от Replicate ----
+        # ✅ НОВОЕ: fallback, если модель перегружена/ошибка
         if not result.get("ok"):
             gen_fail += 1
-            err = result.get("error") or "unknown"
-            await query.message.edit_text(
-                "⚠️ Модель зараз перевантажена, спробуй ще раз через хвилину."
-            )
+
+            busy_map = {
+                "ua": "⚠️ Модель зараз перевантажена.\nСпробуй ще раз через <b>2–3 хвилини</b> 🪄",
+                "en": "⚠️ The model is overloaded right now.\nPlease try again in <b>2–3 minutes</b> 🪄",
+                "es": "⚠️ El modelo está sobrecargado ahora.\nInténtalo de nuevo en <b>2–3 minutos</b> 🪄",
+                "pt": "⚠️ O modelo está sobrecarregado agora.\nTente novamente em <b>2–3 minutos</b> 🪄",
+            }
+            await query.message.edit_text(busy_map.get(lang, busy_map["en"]))
+
+            # сбрасываем выбор, чтобы юзер мог заново нажать ✅ или выбрать другой пресет
+            pending_choice.pop(uid, None)
             return
+
+    except Exception as e:
+        gen_fail += 1
+        logger.exception("Animation error: %s", e)
+
+        err_map = {
+            "ua": "⚠️ Сталася помилка під час обробки.\nСпробуй ще раз через <b>1–2 хвилини</b> або надішли інше фото.",
+            "en": "⚠️ An error happened while processing.\nTry again in <b>1–2 minutes</b> or send another photo.",
+            "es": "⚠️ Ocurrió un error al procesar.\nIntenta de nuevo en <b>1–2 minutos</b> o envía otra foto.",
+            "pt": "⚠️ Ocorreu um erro ao processar.\nTente novamente em <b>1–2 minutos</b> ou envie outra foto.",
+        }
+        await query.message.edit_text(err_map.get(lang, err_map["en"]))
+
+        pending_choice.pop(uid, None)
+        return
 
         gen_success += 1
 
